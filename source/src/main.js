@@ -1741,7 +1741,7 @@ function clearTask() {
   if (t.ch) { scene.remove(t.ch.o); const i = mixers.indexOf(t.ch.mixer); if (i >= 0) mixers.splice(i, 1); }
   J.task = null; J.cooldown = 4;
 }
-function pay(n, why) { n = garnish(n); M.money += n; banner(why + ' +' + n + ' $', 2200); updateMissionHud(); }
+function pay(n, why) { n = garnish(n); M.money += n; L.earned = (L.earned || 0) + Math.max(0, n); banner(why + ' +' + n + ' $', 2200); updateMissionHud(); }
 function invCount() { return Object.values(J.inv).reduce((a, b) => a + b, 0); }
 
 // ---- E key
@@ -2083,6 +2083,7 @@ function serviceShell(floor) {
 }
 function buildService(kind) {
   const R = curRoom;
+  if (kind === 'hotel') { buildAgency('hotel'); return; }
   const PLAN = { concession: buildConcession, police: buildPolice, mairie: buildMairie, bureaux: buildEntreprise, emploi: () => buildAgency('emploi'), immobilier: () => buildAgency('immobilier'), assurance: () => buildAgency('assurance'), banque: () => buildAgency('banque') }[kind]; if (PLAN) return PLAN();
   if (kind === 'concession') {
     shell(6, 4, pickExisting(['I_Floor_12', 'I_Floor_08']), pickExisting(IW), 3); curRoom.wallName = 'I_Wall_02';
@@ -2292,7 +2293,7 @@ const SERVICES = {
   meubles: { label: '🪑 Magasin de meubles', color: '#8e24aa', n: 2 }, emploi: { label: '👔 Agence d’emploi', color: '#3949ab', n: 2 },
   immobilier: { label: '🏠 Agence immobilière', color: '#00897b', n: 2 }, mairie: { label: '🏛️ Mairie', color: '#5d4037', n: 1 },
   police: { label: '🚓 Commissariat', color: '#0d47a1', n: 2 }, bureaux: { label: '💼 Bureaux', color: '#455a64', n: 4 },
-  concession: { label: '🚗 Concession auto', color: '#c62828', n: 2 }, assurance: { label: '🛡️ Assurance auto', color: '#00838f', n: 2 }, station: { label: '⛽ Station-service', color: '#f9a825', n: 0 },
+  concession: { label: '🚗 Concession auto', color: '#c62828', n: 2 }, hotel: { label: '🏨 Hôtel', color: '#00897b', n: 3 }, assurance: { label: '🛡️ Assurance auto', color: '#00838f', n: 2 }, station: { label: '⛽ Station-service', color: '#f9a825', n: 0 },
 };
 function assignServices() {
   const order = doors.map((d, i) => i).sort((a, b) => ((a * 7919) % 101) - ((b * 7919) % 101));
@@ -2352,7 +2353,8 @@ function serviceMenu(d) {
       return openMenu(T, r, 'Achat, location et visite à l’accueil de chaque immeuble. Max 2 résidences ; les autres biens peuvent être mis en location (investissement).');
     }
     if (kind === 'mairie') return openMenu(T, [
-      { t: L.permis ? '🪪 Permis de conduire ✔' : '🪪 Permis de conduire — 100 $ (requis à la concession)', dis: L.permis, fn: () => { if (payMoney(100)) { L.permis = true; banner('Permis obtenu', 1200); } } },
+      { t: '🧾 Payer mes impôts (' + (L.taxes || 0) + ' $)', dis: !L.taxes, fn: () => { if (payMoney(L.taxes)) { L.taxes = 0; phoneNotify('🏛️ Impôts', 'Impôts payés'); } } },
+    { t: L.permis ? '🪪 Permis de conduire ✔' : '🪪 Permis de conduire — 100 $ (requis à la concession)', dis: L.permis, fn: () => { if (payMoney(100)) { L.permis = true; banner('Permis obtenu', 1200); } } },
       { t: '🤝 Aide sociale (+50 $, si moins de 20 $, toutes les 5 min)', dis: M.money + L.bank >= 20 || performance.now() - L.aide < 300000, fn: () => { M.money += 50; L.aide = performance.now(); updateMissionHud(); } },
       { t: '📋 Mes possessions', fn: openPossessions, keep: false }]);
     if (kind === 'police') return openMenu(T, [{ sep: 'Amendes impayées : ' + L.fines + ' $ (feux rouges grillés)' }, { t: 'Payer mes amendes', dis: !L.fines, fn: () => { if (payMoney(L.fines)) { L.fines = 0; banner('Amendes payées', 1200); } } }, { t: '🚓 Emprunter une voiture de patrouille (devant)', fn: () => banner('Monte dans la voiture de police garée devant (E)', 1600), keep: false }]);
@@ -2398,7 +2400,7 @@ function openPossessions() {
 }
 
 // ---- home interior: furniture, bed, bath, chest
-function homeRoom() { return inside && isRes(inside.door.id) ? inside.room : null; }
+function homeRoom() { return inside && (isRes(inside.door.id) || (inside.door.type === 'hotelroom' && L.hotel && L.hotel.until > gameNow())) ? inside.room : null; }
 function roomSpot(name) { const r = inside && inside.room; return r && r.spots && r.spots[name]; }
 function startPlace(id) {
   const r = homeRoom(); if (!r) { banner('Entre chez toi pour placer un meuble', 1500); return; }
@@ -2525,7 +2527,7 @@ function updateLife(dt) {
       if (Math.abs(it.x - car.obj.position.x) < 3 && Math.abs(it.z - car.obj.position.z) < 3 && Math.abs(car.speed) > 6) {
         const h = car.obj.rotation.y, axis = Math.abs(Math.sin(h)) > Math.abs(Math.cos(h)) ? 'x' : 'z';
         const key = it.i + ',' + it.j;
-        if (lightState(it, axis) === 'r' && L.lastFine !== key) { L.lastFine = key; L.fines += 30; banner('🚨 Feu rouge grillé : amende 30 $ (commissariat)', 2000); }
+        if (lightState(it, axis) === 'r' && L.lastFine !== key && !sirenOn()) { L.lastFine = key; L.fines += 30; banner('🚨 Feu rouge grillé : amende 30 $ (commissariat)', 2000); }
       } else if (L.lastFine === it.i + ',' + it.j && Math.hypot(it.x - car.obj.position.x, it.z - car.obj.position.z) > 10) L.lastFine = '';
     }
   }
@@ -2585,7 +2587,7 @@ function drawLifeOnMap(c, k) {
 }
 // ---- save / load (this browser)
 function saveGame(quiet) {
-  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { interim: L.interim, util: L.util, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
+  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, util: L.util, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
   cloudPush();
 }
 function loadGame() {
@@ -2603,7 +2605,7 @@ function loadGame() {
 // ================================================================ INTERIORS (enterable buildings)
 const doors = [];          // { id, x, z, out:[ox,oz], type, built }
 const INT_TYPES = {
-  lobby: { label: 'Hall', color: 0xb0bec5 },
+  lobby: { label: 'Hall', color: 0xb0bec5 }, hotelroom: { label: 'Chambre d’hôtel', color: 0xb0bec5 },
   appart: { label: 'Appartement', color: 0x7ad3ff },
   resto: { label: 'Restaurant', color: 0xff8a3c },
   epicerie: { label: 'Épicerie', color: 0x6ee06e },
@@ -2876,7 +2878,7 @@ async function buildInterior(door) {
   curRoom = { door, group: new THREE.Group(), cols: [], npcs: [], ox: 6000 + (k % 12) * 40, oz: 600 + Math.floor(k / 12) * 40 };
   scene.add(curRoom.group);
   const saved = seed; seed = 1000 + door.id * 7919;
-  ({ service: () => buildService(door.service), appart: buildAppart, resto: buildRestoPlan, epicerie: () => buildEpicerie(extra), jouets: () => buildJouets(extra), entrepot: buildEntrepot, lobby: () => buildLobby(door) })[door.type]();
+  ({ service: () => buildService(door.service), appart: buildAppart, resto: buildRestoPlan, epicerie: () => buildEpicerie(extra), jouets: () => buildJouets(extra), entrepot: buildEntrepot, hotelroom: buildHotelRoom, lobby: () => buildLobby(door) })[door.type]();
   seed = saved;
   for (const c of curRoom.cols) addCol(...c, 0);
   const room = curRoom; curRoom = null;
@@ -3363,9 +3365,9 @@ function addCounterRing(room) {
 }
 const weekly = (key) => { const d = L[key + 'Day'] ?? GT.day; if (GT.day - d >= 7) { L[key + 'Day'] = GT.day; return true; } if (L[key + 'Day'] == null) L[key + 'Day'] = GT.day; return false; };
 function updateContracts(dt) {
-  if (L.util && L.home !== null && weekly('util')) { if (payMoney(UTIL_PRICE)) phoneNotify('🏛️ Mairie', 'Électricité, gaz et eau : −' + UTIL_PRICE + ' $ (semaine)'); else { L.util = false; phoneNotify('🏛️ Mairie', 'Abonnement énergie/eau suspendu (impayé)'); } }
-  if (L.ins && weekly('ins')) { const p = INSURANCE[L.ins].p; if (payMoney(p)) phoneNotify('🛡️ Assurance', INSURANCE[L.ins].n + ' : −' + p + ' $ (semaine)'); else { L.ins = null; phoneNotify('🛡️ Assurance', 'Contrat résilié (impayé)'); } }
-  if (L.loan > 0 && weekly('loan')) { const p = Math.min(L.loan, Math.ceil(L.loanBase / 10)); if (payMoney(p)) { L.loan -= p; phoneNotify('🏦 Banque', 'Remboursement prêt : −' + p + ' $ · reste ' + L.loan + ' $'); } }
+  if (L.util && L.home !== null && weekly('util')) { if (payBill(UTIL_PRICE)) phoneNotify('🏛️ Mairie', 'Électricité, gaz et eau : −' + UTIL_PRICE + ' $ (semaine)'); else { L.util = false; phoneNotify('🏛️ Mairie', 'Abonnement énergie/eau suspendu (impayé)'); } }
+  if (L.ins && weekly('ins')) { const p = INSURANCE[L.ins].p; if (payBill(p)) phoneNotify('🛡️ Assurance', INSURANCE[L.ins].n + ' : −' + p + ' $ (semaine)'); else { L.ins = null; phoneNotify('🛡️ Assurance', 'Contrat résilié (impayé)'); } }
+  if (L.loan > 0 && weekly('loan')) { const p = Math.min(L.loan, Math.ceil(L.loanBase / 10)); if (payBill(p)) { L.loan -= p; phoneNotify('🏦 Banque', 'Remboursement prêt : −' + p + ' $ · reste ' + L.loan + ' $'); } }
   if (L.gymUntil && gameNow() > L.gymUntil) { L.gymUntil = 0; phoneNotify('🏀 Sport', 'Abonnement terminé'); }
   // temp agency: a new offer every ~90 s while registered
   if (L.interim) { L.offerT = (L.offerT ?? 20) - dt; if (L.offerT <= 0) { L.offerT = 90; newOffer(); } }
@@ -3505,6 +3507,7 @@ function gymMenu() {
 function counterMenu(door) {
   const k = door.service || door.type;
   if (k === 'concession') return dealerUI(door);
+  if (k === 'hotel') return hotelMenu(door);
   if (k === 'resto') return restoCounterMenu();
   if (k === 'emploi') return openMenu('👔 Agence d’intérim', [
     { t: L.interim ? '✔ Inscrit à l’agence' : '📝 S’inscrire (gratuit)', dis: L.interim, fn: () => { L.interim = true; L.offerT = 3; phoneNotify('👔 Intérim', 'Inscription validée : les offres arrivent sur ton téléphone'); } },
@@ -3522,7 +3525,8 @@ function counterMenu(door) {
     const r = [{ sep: '🏦 Solde : ' + L.bank + ' $ · 💵 Liquide : ' + M.money + ' $' + (L.loan ? ' · Prêt restant : ' + L.loan + ' $' : '') }];
     for (const v of [20, 100, 500]) r.push({ t: 'Déposer ' + v + ' $', dis: M.money < v, fn: () => { M.money -= v; L.bank += v; updateMissionHud(); } });
     for (const v of [20, 100, 500]) r.push({ t: 'Retirer ' + v + ' $', dis: L.bank < v, fn: () => { L.bank -= v; M.money += v; updateMissionHud(); } });
-    for (const v of [500, 2000]) r.push({ t: '💳 Demander un prêt de ' + v + ' $ (rembourse ' + Math.round(v * 1.1) + ' $ en 10 semaines)', dis: L.loan > 0, fn: () => { L.bank += v; L.loan = L.loanBase = Math.round(v * 1.1); L.loanDay = GT.day; phoneNotify('🏦 Banque', 'Prêt accordé : +' + v + ' $'); } });
+    const cap = Math.min(5000, Math.round((L.earned || 0) * 2)); r.push({ sep: J.job || L.interim || (L.earned || 0) > 0 ? '💳 Prêt possible jusqu’à ' + cap + ' $ (2× tes revenus gagnés)' : '💳 Prêt refusé : il faut travailler (métier ou intérim)' });
+    for (const v of [500, 2000]) r.push({ t: '💳 Demander un prêt de ' + v + ' $ (rembourse ' + Math.round(v * 1.1) + ' $ en 10 semaines)', dis: L.loan > 0 || v > cap, fn: () => { L.bank += v; L.loan = L.loanBase = Math.round(v * 1.1); L.loanDay = GT.day; phoneNotify('🏦 Banque', 'Prêt accordé : +' + v + ' $'); } });
     if (L.loan) r.push({ t: 'Rembourser le prêt maintenant (' + L.loan + ' $)', fn: () => { if (payMoney(L.loan)) { L.loan = 0; phoneNotify('🏦 Banque', 'Prêt soldé'); } } });
     return openMenu('🏦 Banque — guichet', r);
   }
@@ -3815,7 +3819,7 @@ function buildRestoPlan() {
 function buildAgency(kind) {
   planShell(pickExisting(['I_Floor_08', 'I_Floor_12']), pickExisting(IW));
   partition('z', 5, 0, 2, []); partition('x', 5, 0, 2, [1]); partition('z', 12.5, 0, 2, []); partition('x', 5, 5, 7, [5]);
-  const T = { emploi: ['👔 Agence d’intérim', 'Conseiller', 'Conseillère'], immobilier: ['🏠 Agence immobilière', 'Ventes', 'Locations'], assurance: ['🛡️ Assurance auto', 'Contrats', 'Sinistres'], banque: ['🏦 Banque', 'Conseiller', 'Coffre'] }[kind];
+  const T = { emploi: ['👔 Agence d’intérim', 'Conseiller', 'Conseillère'], immobilier: ['🏠 Agence immobilière', 'Ventes', 'Locations'], assurance: ['🛡️ Assurance auto', 'Contrats', 'Sinistres'], banque: ['🏦 Banque', 'Conseiller', 'Coffre'], hotel: ['🏨 Hôtel — réception', 'Bagagerie', 'Direction'] }[kind];
   labelAt(T[0], 8.75, 0.3); counter(8.75, 2.4, 3); roomNPC(8.75, 1.7, 'Idle_A-loop', 0); PLANT('large', 6.0, 0.7); PLANT('large', 11.5, 0.7);
   labelAt(T[1], 2.5, 0.3); OFFICE(2.5, 2.2); iput('I_Library', 0.3, 2.6, Math.PI / 2); for (const dx of [-0.5, 0.5]) iput('I_OfficeChair_02', 2.5 + dx, 3.6, Math.PI); roomNPC(2.5, 3.0, 'Idle_B-loop', Math.PI);
   labelAt(T[2], 15, 0.3);
@@ -3893,7 +3897,7 @@ function updateProps(dt) {
   for (const p of L.props.slice()) {
     const u = doors[p.uid]; if (!u) continue;
     if (!p.own) {
-      p.due -= dt; if (p.due <= 0) { const r = unitRent(u, p.furnished); if (payMoney(r)) { p.due = RENT_PERIOD; banner('🔑 Loyer payé (' + r + ' $)', 1500); } else { banner('Expulsé de l’appartement ' + u.label + ' : loyer impayé', 2500); release(p, false); } }
+      p.due -= dt; if (p.due <= 0) { const r = unitRent(u, p.furnished); if (payBill(r)) { p.due = RENT_PERIOD; banner('🔑 Loyer payé (' + r + ' $)', 1500); } else { banner('Expulsé de l’appartement ' + u.label + ' : loyer impayé', 2500); release(p, false); } }
     } else if (p.mode === 'invest') {
       if (p.tenant > 0) { p.tenant -= dt; if (p.tenant <= 0) phoneNotify('🏠 Immobilier', 'Un locataire s’installe dans l’appartement ' + u.label); continue; }
       p.due -= dt; if (p.due <= 0) { p.due = RENT_PERIOD; const r = unitRent(u, p.furnished); L.bank += r; phoneNotify('🏠 Immobilier', 'Loyer reçu : +' + r + ' $ (appartement ' + u.label + ')'); }
@@ -4018,6 +4022,102 @@ function applyQuality(q, auto) {
   lampLights.forEach((l, i) => { l.visible = i < QS.lights; });
   banner('⚙️ Qualité graphique : ' + q + (auto ? ' (réglée automatiquement)' : ''), 1800);
   const sel = document.getElementById('qualSel'); if (sel && !auto) sel.value = q;
+}
+// ================================================================ CITY SERVICES 2: hotel, map picking, tow truck / ambulance on call, sirens, prison, public services, debt
+const DEBT_LIMIT = 500;       // the bank account may go down to -500 $ for automatic bills
+const ARREST_LIMIT = 300;     // unpaid fines above this -> arrested
+const PRISON_MIN = 30;        // game minutes behind bars
+// automatic bills (rent, utilities, insurance, loan...) may overdraw the account up to the limit
+function payBill(n, label) {
+  if (M.money + L.bank - n < -DEBT_LIMIT) return false;
+  const c = Math.min(Math.max(0, L.bank), n); L.bank -= c; n -= c; if (n > 0) { const m = Math.min(M.money, n); M.money -= m; n -= m; } if (n > 0) L.bank -= n;
+  if (L.bank < 0) phoneNotify('🏦 Banque', 'Compte à découvert : ' + L.bank + ' $ (limite −' + DEBT_LIMIT + ' $)');
+  updateMissionHud(); return true;
+}
+// ---- taxes: accrue every game day, paid at the town hall
+function updateTaxes() { if (L.taxDay == null) L.taxDay = GT.day; if (GT.day > L.taxDay) { const n = (GT.day - L.taxDay) * (8 + L.props.filter(p => p.own).length * 6); L.taxDay = GT.day; L.taxes = (L.taxes || 0) + n; phoneNotify('🏛️ Impôts', 'Nouvel impôt : ' + n + ' $ (à payer à la mairie)'); } }
+// ---- prison
+function arrest() {
+  if (L.prison) return; if (player.inCar) toggleCar();
+  const p = doors.find(d => d.service === 'police'); if (!p) return;
+  L.prison = { until: gameNow() + PRISON_MIN }; L.fines = 0; banner('🚓 Arrêté par la police : ' + PRISON_MIN + ' min de prison', 3000); phoneNotify('🚓 Police', 'Arrêté pour amendes impayées');
+  inside = null; enterDoor(p).then(() => { const r = inside.room; player.pos.set(r.ox + 15, 0, r.oz + 2.2); });
+}
+function updatePrison() {
+  if (!L.prison) { if (L.fines > ARREST_LIMIT && !inside && !UI.open) arrest(); return; }
+  const left = L.prison.until - gameNow();
+  if (inside) { const r = inside.room; if (player.pos.x < r.ox + 12.6 || player.pos.z > r.oz + 4.0) player.pos.set(Math.max(player.pos.x, r.ox + 12.8), 0, Math.min(player.pos.z, r.oz + 3.8)); }
+  if (left <= 0) { L.prison = null; banner('🔓 Libéré', 2000); phoneNotify('🚓 Police', 'Tu es libre'); if (inside) exitInterior(true); }
+  else if (Math.random() < 0.01) banner('⛓️ Prison : encore ' + Math.ceil(left) + ' min', 1200);
+}
+// ---- sirens on service vehicles (police, ambulance, fire): flashing lights, no fines while on duty
+const SIREN_RE = /Police|Ambulance|Fire|SMAT/i;
+const sirenLights = [new THREE.PointLight(0xff1a1a, 0, 18, 1.5), new THREE.PointLight(0x1a4dff, 0, 18, 1.5)];
+sirenLights.forEach(l => scene.add(l));
+function isServiceCar(c) { return c && SIREN_RE.test(c.obj.userData.name || c.name || ''); }
+function sirenOn() { return player.inCar && isServiceCar(player.inCar) && (L.siren || J.task); }
+function updateSirens(t) {
+  const on = sirenOn();
+  sirenLights.forEach((l, i) => { if (!on) { l.intensity = 0; return; } const o = player.inCar.obj, h = o.rotation.y, side = i ? 0.5 : -0.5; l.position.set(o.position.x + Math.cos(h) * side, o.position.y + 2.2, o.position.z - Math.sin(h) * side); l.intensity = (Math.floor(t * 6) % 2 === i) ? 40 : 0; });
+}
+// ---- vehicles sent to the player (tow truck, ambulance)
+const callouts = [];
+function callVehicle(model, label, onArrive) {
+  if (!proto[model]) model = ['Ambulance', 'Ambulance_2_A', 'PickUp_3', 'PickUp_1'].find(m => proto[m]);
+  const o = makeObject(model); const a = Math.random() * 6.28, R = 90;
+  o.position.set(player.pos.x + Math.cos(a) * R, SW + 0.24, player.pos.z + Math.sin(a) * R); scene.add(o);
+  callouts.push({ o, label, onArrive, t: 0 }); banner(label + ' en route…', 1800); phoneNotify('📞 ' + label, 'En route vers toi');
+}
+function updateCallouts(dt, t) {
+  for (const c of callouts.slice()) {
+    const tx = player.pos.x + 3, tz = player.pos.z + 2, dx = tx - c.o.position.x, dz = tz - c.o.position.z, d = Math.hypot(dx, dz);
+    if (c.done) { c.t += dt; if (c.t > 6) { scene.remove(c.o); callouts.splice(callouts.indexOf(c), 1); } continue; }
+    if (d < 2) { c.done = true; c.onArrive(); continue; }
+    const s = Math.min(d, 16 * dt); c.o.position.x += dx / d * s; c.o.position.z += dz / d * s; c.o.rotation.y = Math.atan2(dx, dz); spinWheels(c.o, 16, dt);
+    if (SIREN_RE.test(c.o.userData.name)) { const l = sirenLights[Math.floor(t * 6) % 2]; if (!sirenOn()) { l.position.set(c.o.position.x, 2.4, c.o.position.z); l.intensity = 40; sirenLights[1 - Math.floor(t * 6) % 2].intensity = 0; } }
+  }
+}
+// ---- hotel: rooms for one night (studio: double bed, plants, table, TV)
+function buildHotelRoom() {
+  curRoom.wallName = pickExisting(IW); shell(4, 3, pickExisting(['I_Floor_05', 'I_Floor_08']), curRoom.wallName, 3);
+  iput(pickExisting(['I_Bed2_01', 'I_Bed2_02']), 2.4, 1.6, 0); iput('I_Bed_Table_01', 0.6, 0.4); iput('I_Bed_Table_02', 4.2, 0.4); iput('I_Lamp_03', 0.6, 0.4, 0, topOf('I_Bed_Table_01'), false);
+  iput('I_RoomTable_01', 7.6, 1.2, -Math.PI / 2); iput('I_TV', 7.6, 1.2, -Math.PI / 2, topOf('I_RoomTable_01'), false);
+  iput(pickExisting(['I_KitchenTable_01', 'I_KitchenTable_03']), 5.6, 5.0); iput('I_KitchenChair_01', 5.6, 5.8, Math.PI); PLANT('medium', 5.6, 5.0 - 0.0 + 0.0); 
+  PLANT('large', 0.6, 6.8); PLANT('small', 7.4, 6.8); iput(pickExisting(['I_Sofa_06', 'I_Sofa_04']), 2.4, 5.6, 0);
+  iput('I_Toilet_01', 7.6, 3.6, -Math.PI / 2);
+  curRoom.spots = { bed: new THREE.Vector3(curRoom.ox + 2.4, 0, curRoom.oz + 3.0) }; curRoom.hotel = true;
+}
+function hotelMenu(door) {
+  const mine = L.hotel && L.hotel.until > gameNow();
+  openMenu('🏨 Hôtel — réception', [
+    { sep: mine ? 'Ta chambre est réservée jusqu’à demain ' + String(Math.floor((L.hotel.until % 1440) / 60)).padStart(2, '0') + ' h' : 'Chambre studio : lit double, TV, coin salon' },
+    { t: '🛏️ Louer une chambre pour la nuit — 45 $', dis: mine, fn: () => { if (payMoney(45)) { L.hotel = { until: (Math.floor(gameNow() / 1440) + 1) * 1440 + 11 * 60 }; phoneNotify('🏨 Hôtel', 'Chambre réservée jusqu’à 11 h demain'); } } },
+    { t: '🛗 Monter à ma chambre', dis: !mine, fn: () => { closeMenu(); inside = null; enterDoor(hotelRoomDoor(door)); }, keep: false },
+  ]);
+}
+function hotelRoomDoor(d) { if (!d.room) d.room = { id: 80000 + d.id, type: 'hotelroom', of: d, x: d.x, z: d.z, out: d.out, built: null, _viaLobby: true }; return d.room; }
+// ---- big map: tap to choose a destination (GPS) or to send the taxi there
+function openBigMap(mode) {
+  togglePhone(false);
+  const ov = document.createElement('div'); ov.id = 'bigmap'; ov.innerHTML = '<div class="bmh"><b></b><button>✕</button></div><canvas></canvas><p class="bmt"></p>';
+  document.body.append(ov); UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock();
+  ov.querySelector('b').textContent = mode === 'taxi' ? '🚕 Touche l’endroit où le taxi doit t’emmener' : '📍 Touche une destination (tes biens en jaune)';
+  const c = ov.querySelector('canvas'), S = Math.min(innerWidth - 40, innerHeight - 140); c.width = c.height = S; const k = S / (2 * HALF);
+  const g = c.getContext('2d'); g.drawImage(hud.mm, 0, 0, S, S);
+  const dot = (x, z, col, r, txt) => { g.fillStyle = col; g.beginPath(); g.arc((x + HALF) * k, (z + HALF) * k, r, 0, 7); g.fill(); if (txt) { g.font = 'bold 12px sans-serif'; g.fillStyle = '#fff'; g.fillText(txt, (x + HALF) * k + r + 2, (z + HALF) * k + 4); } };
+  for (const p of L.props) { const u = doors[p.uid]; dot(u.x, u.z, '#ffd54f', 7, '🏠 ' + u.label); }
+  for (const [n, x, z] of destinations()) dot(x, z, '#90caf9', 4, '');
+  dot(player.pos.x, player.pos.z, '#fff', 6, 'Moi');
+  const close = () => { ov.remove(); UI.open = false; };
+  ov.querySelector('button').onclick = close;
+  c.onclick = (e) => {
+    const r = c.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 2 * HALF - HALF, z = (e.clientY - r.top) / r.height * 2 * HALF - HALF;
+    const near = [...destinations(), ...L.props.map(p => ['🏠 Appartement ' + doors[p.uid].label, doors[p.uid].x, doors[p.uid].z])].sort((a, b) => Math.hypot(a[1] - x, a[2] - z) - Math.hypot(b[1] - x, b[2] - z))[0];
+    const pickN = near && Math.hypot(near[1] - x, near[2] - z) < 30 ? near : ['📍 Point choisi', x, z];
+    close();
+    if (mode === 'taxi') { const p = 2 + Math.round(Math.hypot(pickN[1] - player.pos.x, pickN[2] - player.pos.z) / 50); travelTo(pickN[1], pickN[2], pickN[0], p); }
+    else gpsSet(pickN[1], pickN[2], pickN[0]);
+  };
 }
 // ================================================================ PARKING BARRIERS, PAID ZONE, LOBBIES, PHONE
 // ---- lifting barrier (RoadStop_1_A from the city pack: the arm is its own node, we pivot it)
@@ -4172,7 +4272,7 @@ const APPS = [
   { id: 'carte', n: 'Carte', ic: 'Location_Pin' }, { id: 'taxi', n: 'Taxi', ic: 'Star' }, { id: 'urgences', n: 'Urgences', ic: 'Heart' },
   { id: 'reparateur', n: 'Réparateur', ic: 'Hammer' }, { id: 'livraison', n: 'Livraison', ic: 'Pizza' }, { id: 'banque', n: 'Banque', ic: 'Credit_Card' },
   { id: 'meteo', n: 'Météo', ic: 'Cloud' }, { id: 'missions', n: 'Missions', ic: 'Scroll' }, { id: 'parking', n: 'Parking', ic: 'Cash' },
-  { id: 'logement', n: 'Logement', ic: 'Blue_House' }, { id: 'fournisseurs', n: 'Fournisseurs', ic: 'Box' }, { id: 'internet', n: 'Internet', ic: 'Planet' },
+  { id: 'logement', n: 'Logement', ic: 'Blue_House' }, { id: 'publics', n: 'Services publics', ic: 'Scroll' }, { id: 'fournisseurs', n: 'Fournisseurs', ic: 'Box' }, { id: 'internet', n: 'Internet', ic: 'Planet' },
 ];
 const $ = (id) => document.getElementById(id);
 function phoneNotify(app, text) {
@@ -4215,22 +4315,25 @@ const APP = {
     const box = pel('div', 'pgps'); s.append(box); PH.gpsBox = box; drawPhoneGps();
     if (L.gps) s.append(prow('Effacer l’itinéraire', () => { L.gps = null; }));
     const mt = navTarget(); if (mt) s.append(prow('🎯 Suivre la mission : ' + mt.label, () => { L.gps = null; }));
+    s.append(prow('🗺️ Agrandir la carte / choisir une destination', () => openBigMap('gps')));
     s.append(prow('🔎 Choisir une destination (Internet)', () => { phoneGo('internet'); })); },
   taxi(s) {
+    s.append(prow('🗺️ Choisir sur la carte', () => openBigMap('taxi')));
     s.append(pel('p', 'pt', 'Un taxi t’emmène où tu veux. 2 $ + 1 $ / 50 m.'));
     for (const [n, x, z] of destinations()) { const p = 2 + Math.round(pdist(x, z) / 50); s.append(prow(n + ' · ' + p + ' $', () => travelTo(x, z, n, p))); }
   },
   urgences(s) {
     s.append(pel('p', 'pt', 'Santé : ' + Math.round(L.needs.sante ?? 100) + ' %' + (L.sick ? ' · malade' : '')));
-    s.append(prow('🚑 Appeler une ambulance (80 $, soins compris)', () => { const h = nearestSpot('hospital'); if (!h) return; if (M.money + L.bank < 80) { banner('Pas assez d’argent', 1200); return; } if (travelTo(h.pos.x, h.pos.z + 2, 'Hôpital', 80)) setTimeout(() => { L.needs.sante = 100; L.sick = false; phoneNotify('🏥 Hôpital', 'Tu as été soigné'); }, 1600); }));
-    s.append(prow('🚓 Police — payer mes amendes (' + L.fines + ' $)', () => { if (L.fines && payMoney(L.fines)) { L.fines = 0; phoneNotify('🚓 Police', 'Amendes réglées'); } }, !L.fines));
+    s.append(prow('🚑 Appeler une ambulance (80 $, soins compris)', () => { if (inside || player.inCar) { banner('Sors dans la rue pour que l’ambulance te trouve', 1600); return; } if (!payMoney(80)) return; togglePhone(false); callVehicle('Ambulance', '🚑 Ambulance', () => { const h = nearestSpot('hospital'); setTimeout(() => { if (h) { const hd = hospitalDoor(); if (hd) enterDoor(hd); } L.needs.sante = hpMax(); L.sick = false; phoneNotify('🏥 Hôpital', 'Tu as été pris en charge et soigné'); }, 1500); }); }));
+    s.append(prow('🚨 Gyrophares de mon véhicule de service : ' + (L.siren ? 'ON' : 'OFF'), () => { L.siren = !L.siren; }));
+    if (false) s.append(prow('', () => { if (L.fines && payMoney(L.fines)) { L.fines = 0; phoneNotify('🚓 Police', 'Amendes réglées'); } }, !L.fines));
     s.append(prow('🚒 Caserne — GPS', () => { const f = nearestSpot('fire'); if (f) gpsSet(f.pos.x, f.pos.z, 'Caserne'); }));
   },
   reparateur(s) {
     const mine = L.owned || []; if (!mine.length) s.append(pel('p', 'pt', 'Tu n’as pas de voiture (concession auto).'));
     for (const c of mine) { const dmg = 100 - Math.round(c.hp ?? 100), p = repairPrice(Math.ceil(dmg * 1.5) + 15);
       s.append(pel('p', 'pt', '🚗 ' + (c.name || 'Voiture') + ' — état ' + (100 - dmg) + ' % · essence ' + Math.round(c.fuel ?? 100) + ' %'));
-      s.append(prow('🔧 Dépanneuse : réparation sur place (' + p + ' $)', () => { if (payMoney(p)) { c.hp = 100; phoneNotify('🔧 Réparateur', (c.name || 'Voiture') + ' réparée'); } }, dmg <= 0));
+      s.append(prow('🔧 Dépanneuse : réparation sur place (' + p + ' $)', () => { if (payMoney(p)) { togglePhone(false); callVehicle('PickUp_3', '🔧 Dépanneuse', () => { c.hp = 100; banner('🔧 ' + (c.name || 'Voiture') + ' réparée par le dépanneur', 2000); phoneNotify('🔧 Réparateur', (c.name || 'Voiture') + ' réparée'); }); } }, dmg <= 0));
       s.append(prow('⛽ Livraison d’essence (' + (10 + Math.ceil((100 - (c.fuel ?? 100)) / 5) * 2) + ' $)', () => { if (payMoney(10 + Math.ceil((100 - (c.fuel ?? 100)) / 5) * 2)) { c.fuel = 100; phoneNotify('⛽', 'Plein livré'); } }, (c.fuel ?? 100) >= 99)); }
     const g = jobSpots.filter(x => x.kind === 'garage').sort((a, b) => pdist(a.pos.x, a.pos.z) - pdist(b.pos.x, b.pos.z))[0];
     if (g) s.append(prow('📍 GPS vers le garage le plus proche', () => gpsSet(g.pos.x, g.pos.z, 'Garage')));
@@ -4246,7 +4349,7 @@ const APP = {
   banque(s) {
     s.append(pel('p', 'pt', '💵 Liquide : ' + M.money + ' $\n🏦 Compte : ' + L.bank + ' $\n🚓 Amendes : ' + L.fines + ' $' + (L.loan ? '\n💳 Prêt restant : ' + L.loan + ' $' : '') + (L.ins ? '\n🛡️ ' + INSURANCE[L.ins].n : '') + (L.util ? '\n⚡ Pack énergie/eau actif' : '')));
     for (const n of [20, 100]) { s.append(prow('Déposer ' + n + ' $', () => { if (M.money >= n) { M.money -= n; L.bank += n; } }, M.money < n)); s.append(prow('Retirer ' + n + ' $', () => { if (L.bank >= n) { L.bank -= n; M.money += n; } }, L.bank < n)); }
-    s.append(prow('Payer mes amendes', () => { if (payMoney(L.fines)) L.fines = 0; }, !L.fines));
+    s.append(pel('p', 'pt dim', 'Amendes et impôts : appli Services publics (paiement sur place).'));
   },
   meteo(s) {
     const h = GT.min / 60, ph = h < 5 || h >= 21 ? '🌙 Nuit' : h < 7.5 ? '🌅 Aube' : h < 18.5 ? '☀️ Jour' : '🌇 Coucher de soleil';
@@ -4278,6 +4381,12 @@ const APP = {
       if (p.mode === 'invest') s.append(prow('🏡 Reprendre comme résidence secondaire', () => setMode(p, 'secondaire'), residences().length >= 2)); }
     const a = doors.filter(d => d.type === 'appart' && !d.unit).sort((x, y) => pdist(x.x, x.z) - pdist(y.x, y.z)).slice(0, 3);
     for (const d of a) s.append(prow('🏢 Immeuble à ' + Math.round(pdist(d.x, d.z)) + ' m — GPS', () => gpsSet(d.x, d.z, 'Immeuble')));
+  },
+  publics(s) {
+    s.append(pel('p', 'pt', '🚓 Amendes : ' + L.fines + ' $' + (L.fines ? ' (arrestation au-delà de ' + ARREST_LIMIT + ' $)' : '') + '\n🧾 Impôts : ' + (L.taxes || 0) + ' $\n🏦 Compte : ' + L.bank + ' $ (découvert max −' + DEBT_LIMIT + ' $)\nLe paiement se fait au guichet du bâtiment.'));
+    const go = (svc, label) => { const d = doors.filter(x => x.service === svc).sort((a, b) => pdist(a.x, a.z) - pdist(b.x, b.z))[0]; if (d) gpsSet(d.x, d.z, label); };
+    s.append(prow('🚓 Payer mes amendes → commissariat le plus proche', () => go('police', 'Commissariat'), !L.fines));
+    s.append(prow('🧾 Payer mes impôts → mairie la plus proche', () => go('mairie', 'Mairie'), !L.taxes));
   },
   fournisseurs(s) { s.append(pel('p', 'pt', '🔒 S’activera avec le système d’entreprise (pas encore dans le jeu).')); },
   internet(s) {
@@ -4329,9 +4438,9 @@ function drawPhoneMap() {
 let phTick = 0;
 function updatePhone(dt) {
   PH.battery = Math.max(0, PH.battery - dt * (PH.open ? 0.12 : 0.02));
-  if (inside && isRes(inside.door.id)) PH.battery = Math.min(100, PH.battery + dt * 2);
+  if (inside) PH.battery = Math.min(100, PH.battery + dt * 2);
   if (PH.order) { PH.order.t -= dt; if (PH.order.t <= 0) { chest[PH.order.id] = (chest[PH.order.id] || 0) + 1; phoneNotify('🛵 Livraison', ITEMS[PH.order.id].n + ' livré chez toi (coffre)'); PH.order = null; } }
-  updatePaid(); updateGates(dt); updateGpsStrip(); updateContracts(dt);
+  updatePaid(); updateGates(dt); updateGpsStrip(); updateContracts(dt); updateTaxes(); updatePrison(); updateSirens(performance.now() / 1000); updateCallouts(dt, performance.now() / 1000);
   if (M.active !== PH.lastMis) { PH.lastMis = M.active; if (M.active) gpsOpen(); }
   if (J.task !== PH.lastTask) { PH.lastTask = J.task; if (J.task) phoneNotify(JOBS[J.job] ? JOBS[J.job].icon + ' ' + JOBS[J.job].label : '💼 Métier', J.task.goal || 'Nouvelle tâche'); }
   phTick += dt; if (PH.open && phTick > (PH.app === 'carte' ? 0.1 : 0.5)) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); } }
@@ -4594,6 +4703,18 @@ function start() {
           saveGame(true); const before = L.props.length; L.props = []; loadGame(); out.reload = L.props.length === before && L.props.find(p => p.uid === us[0].id).furn.length === 1;
           const m3 = M.money; release(propOf(us[0].id), true); out.sold = M.money - m3; out.expectedSale = Math.round((us[0].base + furnitureValue()) * 0.8);
           const js = JSON.stringify(out); for (let i = 0; i < js.length; i += 250) console.log('IMMO' + i + ' ' + js.slice(i, i + 250));
+        })().catch(e => console.log('ERR ' + e.stack));
+      } else if (auto === 'svc2') {
+        game.on = true; const out = {};
+        window.PENDING = (async () => {
+          const hd = doors.find(d => d.service === 'hotel'); out.hotelExists = !!hd; M.money = 500;
+          await enterDoor(hd); player.pos.copy(inside.room.counter); lifeAction(); [...document.querySelectorAll('#menu button')].find(b => /Louer une chambre/.test(b.textContent)).click(); out.booked = !!L.hotel; closeMenu();
+          await enterDoor(hotelRoomDoor(hd)); out.inRoom = inside.door.type === 'hotelroom'; out.canSleep = !!homeRoom(); exitInterior(true);
+          M.money = 0; L.bank = 0; out.bill = payBill(100) && L.bank === -100; out.billOverLimit = !payBill(450);
+          L.earned = 0; J.job = null; L.interim = false;
+          const c = { obj: makeObject('Car_1_A'), hp: 40, name: 'Test' }; let arrived = 0; callVehicle('PickUp_3', 'Dépanneuse', () => arrived++); for (let i = 0; i < 260; i++) step(); out.towArrived = arrived;
+          L.fines = 400; step(); await new Promise(r => setTimeout(r, 1500)); out.arrested = !!L.prison && inside && inside.door.service === 'police'; out.finesAfter = L.fines;
+          console.log('SVC2 ' + JSON.stringify(out));
         })().catch(e => console.log('ERR ' + e.stack));
       } else if (auto === 'view') {
         const bx = blockC(+Q.get('i')), bz = blockC(+Q.get('j')); const o = (Q.get('o') || '0,30,40').split(',').map(Number); const tg = (Q.get('t') || '0,0,0').split(',').map(Number);
