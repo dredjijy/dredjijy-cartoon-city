@@ -298,20 +298,33 @@ function variantOf(name, x, z) {
   if (!(name in VARC)) { VARC[name] = null; for (const [a, b] of VARF) if (a.test(name)) { const re = b || new RegExp('^' + name.replace(/_A$/, '_[A-D]') + '$'); if (!proto[name].bb) { VARC[name] = null; return name; } const s0 = proto[name].bb.getSize(new THREE.Vector3()), free = /^(Bush|Flower|Grass|Pebles|Plant)/.test(name); VARC[name] = Object.keys(proto).filter(n => { if (!re.test(n) || !proto[n].bb) return false; if (free) return true; const s = proto[n].bb.getSize(new THREE.Vector3()); return Math.abs(s.x - s0.x) < 0.25 * s0.x + 0.1 && Math.abs(s.z - s0.z) < 0.25 * s0.z + 0.1 && Math.abs(s.y - s0.y) < 0.35 * s0.y + 0.1; }).sort(); break; } if (!VARC[name] || VARC[name].length < 2) { VARC[name] = null; return name; } }
   const L = VARC[name], h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1; return L[Math.floor(h * L.length)];
 }
+// seat of a bench model: the side opposite the backrest, the height of the seat plank (measured on the mesh)
+const SEATC = {};
+function benchSeat(name, x, z, rot) {
+  let s = SEATC[name];
+  if (!s) { const P = proto[name], v = new THREE.Vector3(); let bx = 0, bn = 0, sy = 0; const long = P.bb.max.z - P.bb.min.z > P.bb.max.x - P.bb.min.x;
+    for (const p of P.parts) { const pos = p.geo.attributes.position; for (let i = 0; i < pos.count; i += 3) { v.fromBufferAttribute(pos, i).applyMatrix4(p.mtx); const a = long ? v.x : v.z; if (v.y > 0.62) { bx += a; bn++; } else if (v.y < 0.6) sy = Math.max(sy, v.y); } }
+    const back = bn ? Math.sign(bx / bn) || 1 : -1; // backrest side along the short axis
+    s = SEATC[name] = { long, back, y: Math.min(0.55, Math.max(0.35, sy)) }; }
+  const c = Math.cos(rot), sn = Math.sin(rot);
+  // local facing: away from the backrest along the short axis
+  const lx = s.long ? -s.back : 0, lz = s.long ? 0 : -s.back, wx = lx * c + lz * sn, wz = -lx * sn + lz * c;
+  return { x: x + wx * 0.02, z: z + wz * 0.02, y: s.y, rot: Math.atan2(wx, wz) };
+}
 function put(name, x, y, z, rot = 0, sc = 1, sy) {
   if (!proto[name]) { console.warn('missing', name); return; }
   if (!put._raw) name = variantOf(name, x, z);
   if (name === 'Parkomat') parkomats.push({ x, z });
   PUTLOG.push([name, x, y, z, rot, sc]);
   if (/^Basketball_Stand_/.test(name)) hoops.push({ x, z });
-  if (/^Bench/.test(name)) benchSpots.push({ x, z, rot: (rot || 0) + Math.PI, used: false });
+  if (/^Bench/.test(name) && y < 2.5) { const s = benchSeat(name, x, z, rot || 0); benchSpots.push({ x: s.x, z: s.z, y: s.y, rot: s.rot, used: false }); }
   const key = name + '@' + Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
   let b = buckets.get(key); if (!b) { b = { name, mats: [] }; buckets.set(key, b); }
   _q.setFromAxisAngle(_up, rot); _s.set(sc, sy ?? sc, sc); _p.set(x, y, z);
   b.mats.push(new THREE.Matrix4().compose(_p, _q, _s));
   if (y < 2.5 && PROP_COL.test(name)) propCollider(name, x, z, rot, sc);
   if (/^(Lights_5|Lamp_Court|StreetLamp)/.test(name)) registerLamp(name, x, y, z, rot, sc);
-  if (y < 2.5 && /^Bench_(1_A|2_A|3_A|4_A|1_A_1)$/.test(name)) registerBench(x, z, rot);
+  if (y < 2.5 && /^Bench_\d_[A-E](_1)?$/.test(name)) { const s = benchSeat(name, x, z, rot || 0); benches.push({ x: s.x, z: s.z, rot: s.rot, y: s.y }); }
   return { key, idx: b.mats.length - 1 };
 }
 function hideInstance(h) {
@@ -680,8 +693,8 @@ function roofProps(x0, z0, f, nm, rot) {
       y = hit.point.y;
     }
     put(pn, px, y, pz, (rr(0, 4) | 0) * 1.57); ROOFSTAT.ok++;
+    if (/^Chimney/.test(pn) && chance(0.35)) { const v = new THREE.Vector3(px, y + proto[pn].bb.max.y + 0.2, pz); v.small = true; smokers.push(v); } // smoke only out of a real chimney
   }
-  if (chance(0.04)) { const v = new THREE.Vector3(x0 + w * 0.5, SW + f.h + 1, z0 + d * 0.5); v.small = true; smokers.push(v); }
 }
 
 // row of buildings along an edge of the lot. side: 'N' (front faces -Z) or 'S'. Consumes the queue.
@@ -879,13 +892,13 @@ function blockFactory(cx, cz, bi, bj, big) {
     put('ChimneyPowerPlant_3_A', cx + 14, SW, cz + 13, 0); smokers.push(new THREE.Vector3(cx + 14, SW + 30, cz + 13));
     put('ChimneyPowerPlant_2_A', cx + 14, SW, cz + 2, 0); smokers.push(new THREE.Vector3(cx + 14, SW + 19.5, cz + 2));
     putC('GasTank_2_A', cx + 10, cz - 12, SW, 0);
-    smokers.push(new THREE.Vector3(cx - 12, SW + 12.5, cz - 6), new THREE.Vector3(cx - 6, SW + 12.5, cz + 6));
+    smokers.push(...stackTops('Building_Factory_4_A', cx - 20, cz - 20));
   } else {
     putAt('Building_Factory_1_A', cx - 20, cz - 20, SW, 0);
     putAt('Building_Factory_2_A', cx + 4, cz - 20, SW, 0);
     for (let i = 0; i < 6; i++) put(pick(['Container_1_1', 'Container_1_2', 'Container_1_3', 'Container_1_4']), cx - 16 + i * 3, SW + (i % 3 === 0 ? 1.9 : 0) * 0, cz + 14, 0);
     put('GasTank_1_A', cx + 15, SW, cz + 12, 0);
-    smokers.push(new THREE.Vector3(cx - 12, SW + 10, cz - 10));
+    smokers.push(...stackTops('Building_Factory_1_A', cx - 20, cz - 20), ...stackTops('Building_Factory_2_A', cx + 4, cz - 20));
   }
   for (let i = 0; i < 8; i++) put(pick(['Pallet_1_1', 'Barrel_1_1', 'WoodStock_1', 'PipesBulk']), cx + rr(-18, 18), SW, cz + rr(5, 18), rr(0, 6));
   put('ForkLift', cx - 4, SW, cz + 8, 1.2);
@@ -1125,6 +1138,13 @@ function initSmoke() {
   smokeMesh.castShadow = false; smokeMesh.frustumCulled = false;
   smokers.forEach((s, si) => { for (let k = 0; k < per; k++) puffs.push({ s, age: k / per * 6, life: 6, dx: rr(-0.4, 0.4), dz: rr(-0.4, 0.4) }); });
   scene.add(smokeMesh);
+}
+// tops of the chimney stacks of a model placed with putAt(name, x0, z0, SW, 0): tall narrow parts of the mesh
+function stackTops(name, x0, z0) {
+  const P = proto[name], f = footprint(name, 0), H = P.bb.max.y, out = [], b = new THREE.Box3();
+  for (const p of P.parts) { p.geo.computeBoundingBox(); b.copy(p.geo.boundingBox).applyMatrix4(p.mtx); const sx = b.max.x - b.min.x, sz = b.max.z - b.min.z;
+    if (b.max.y > H * 0.75 && b.max.y - b.min.y > H * 0.3 && Math.max(sx, sz) < 4) out.push(new THREE.Vector3(x0 - f.minx + (b.min.x + b.max.x) / 2, SW + b.max.y + 0.3, z0 - f.minz + (b.min.z + b.max.z) / 2)); }
+  return out.slice(0, 3);
 }
 function updateSmoke(dt) {
   if (!smokeMesh) return;
@@ -2625,6 +2645,7 @@ function openMenu(title, rows, sub = '') {
   for (const r of rows) {
     if (r.sep) { const s = document.createElement('i'); s.textContent = r.sep; list.append(s); continue; }
     const btn = document.createElement('button'); btn.textContent = r.t; if (r.dis) btn.disabled = true;
+    if (r.img) { btn.className = 'mimg'; const th = itemThumb(r.img); btn.innerHTML = (th ? '<img src="' + th + '">' : '<i>' + (ITEM_EMOJI[r.img] || '📦') + '</i>') + '<span></span>'; btn.lastChild.textContent = r.t; }
     btn.onclick = () => { r.fn(); if (UI.open && r.keep !== false && m._refresh) m._refresh(); };
     list.append(btn);
   }
@@ -2648,13 +2669,14 @@ addEventListener('keydown', (e) => {
 function inCuisine() { return inside && ['appart', 'resto'].includes(inside.door.type); }
 // ---- product pictures: each item is drawn from its own 3D model of the packs (rendered once, cached as an image)
 const ITEM_MODEL = {
-  eau: ['G_Bottle_1', 'G_Bottle_2'], soda: ['G_Can_1', 'G_Can_2'], lait: ['G_Milk_1'], cafe: ['G_Cofe_Cup_1', 'Coffee_1'], jus: ['G_Juice_Carton_1'],
-  pain: ['Bread_1_A', 'G_Bread_1_Tall'], fromage: ['G_Cheese_1'], tomate: ['G_Tomato'], salade: ['CR_crate_lettuce'], oeuf: ['Food_1_A'], pates: ['G_Food_Box'], viande: ['G_Meat_4'],
-  fruits: ['G_Apple_1', 'G_Orange'], sucre: ['Jar_1_A'], grains: ['Jar_2_A'], legumes: ['G_Carrot', 'CR_crate_carrots'], sandwich: ['Burger'], salade_comp: ['Food_2_B'], omelette: ['Food_1_B'],
-  pates_bolo: ['Food_3'], smoothie: ['G_Juice_Carton_4'], cafe_maison: ['Mug_1_A'], soupe: ['Food_4'], plat: ['Food_5', 'Food_1_C'], dessert: ['Cake_1_A', 'G_Cake_1'], biere: ['G_Bottle_4'],
+  eau: ['G_Bottle_1', 'G_Bottle_2'], soda: ['G_Can_1', 'G_Can_2'], cafe: ['R_Coffy_A', 'G_Cofe_Cup_1'], lait: ['R_Milk_1_A', 'G_Milk_1'], jus: ['G_Juice_Carton_1'],
+  pain: ['Bread_1_A', 'R_Bread_1'], fromage: ['G_Cheese_1'], tomate: ['G_Tomato'], salade: ['CR_crate_lettuce'], oeuf: ['R_Egg'], pates: ['G_Food_Box'], viande: ['R_Steak_Ready', 'G_Meat_4'],
+  fruits: ['G_Apple_1', 'G_Orange'], sucre: ['Jar_1_A'], grains: ['Jar_2_A'], legumes: ['G_Carrot', 'CR_crate_carrots'], sandwich: [], salade_comp: [], omelette: ['R_Egg_Ready', 'R_Eggs_Ready'],
+  pates_bolo: [], smoothie: [], cafe_maison: ['R_Coffy_B', 'Mug_1_A'], soupe: [], plat: ['R_Dish_3_Ready'], dessert: ['R_Cake_3_Ready', 'Cake_1_A'], biere: ['G_Bottle_4'],
   croissant: ['G_Croissant'], medicament: ['G_Pills_1'], bandage: ['G_Pills_3'], savon: ['G_Solid_Soap_1', 'G_Fluid_Soap_1'], vitamines: ['G_Pills_2'],
   pioche: ['T_pickaxe'], arrosoir: ['T_bucket_metal'], cle: ['T_wrench_A'], jerrycan: ['K_Fuel_A_Jerrycan'],
 };
+const ITEM_EMOJI = { sandwich: '🥪', salade_comp: '🥗', pates_bolo: '🍝', soupe: '🍲', smoothie: '🥤' };
 const itemModel = (id) => id.startsWith('F:') ? (proto[id.slice(2)] ? id.slice(2) : null) : ((ITEM_MODEL[id] || []).find(n => proto[n]) || null);
 const THUMB = {}; let thumbRT = null, thumbScene = null, thumbCam = null;
 function ensureThumb() { if (thumbRT) return; thumbRT = new THREE.WebGLRenderTarget(128, 128); thumbScene = new THREE.Scene(); thumbScene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 2.2)); const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(2, 3, 2); thumbScene.add(dl); thumbCam = new THREE.PerspectiveCamera(30, 1, 0.01, 100); }
@@ -2785,14 +2807,24 @@ const SERVICES = {
   police: { label: '🚓 Commissariat', color: '#0d47a1', n: 2 }, bureaux: { label: '💼 Bureaux', color: '#455a64', n: 4 },
   concession: { label: '🚗 Concession auto', color: '#c62828', n: 2 }, hotel: { label: '🏨 Hôtel', color: '#00897b', n: 3 }, assurance: { label: '🛡️ Assurance auto', color: '#00838f', n: 2 }, station: { label: '⛽ Station-service', color: '#f9a825', n: 0 },
 };
+// each business goes to a building whose model fits it: shops and cafés in low street-front buildings,
+// offices, bank, insurance and agencies in the tall towers, town hall / police / hotel in mid-rise blocks
+const SERVICE_FIT = { cafe: 'low', supermarche: 'low', pharmacie: 'low', meubles: 'low', banque: 'tall', assurance: 'tall', bureaux: 'tall', immobilier: 'tall', emploi: 'tall', hotel: 'mid', mairie: 'mid', police: 'mid', concession: 'low', station: 'any' };
+function doorBuilding(d) {
+  const px = d.x - d.out[0] * 1.5, pz = d.z - d.out[1] * 1.5;
+  const p = placed.find(p => px >= p.x0 - 0.5 && px <= p.x1 + 0.5 && pz >= p.z0 - 0.5 && pz <= p.z1 + 0.5 && proto[p.nm]);
+  return p ? { nm: p.nm, h: proto[p.nm].bb.max.y } : { nm: null, h: 10 };
+}
 function assignServices() {
-  const order = doors.map((d, i) => i).sort((a, b) => ((a * 7919) % 101) - ((b * 7919) % 101));
-  let k = 0;
+  for (const d of doors) d.bld = doorBuilding(d);
+  const fit = (d, want) => { const h = d.bld.h; return want === 'low' ? (h < 14 ? 0 : h < 22 ? 1 : 3) : want === 'tall' ? (h >= 24 ? 0 : h >= 16 ? 1 : 3) : want === 'mid' ? (h >= 12 && h < 32 ? 0 : 2) : 0; };
   for (const [kind, s] of Object.entries(SERVICES)) for (let c = 0; c < s.n; c++) {
-    while (k < order.length && doors[order[k]].service) k++;
-    const d = doors[order[k++]]; if (!d) break;
-    d.service = kind; d.type = s.interior || 'service';
+    const want = SERVICE_FIT[kind] || 'any';
+    let best = null, bs = 1e9; for (const d of doors) { if (d.service || d.type === 'lobby' || d.unit) continue; const sc = fit(d, want) * 100 + ((d.id * 7919 + c * 31 + kind.length * 13) % 97); if (sc < bs) { bs = sc; best = d; } }
+    if (!best) break; best.service = kind; best.type = s.interior || 'service';
   }
+  // non-business doors: restaurants and grocers at street level, flats in the taller buildings
+  for (const d of doors) if (!d.service && (d.type === 'resto' || d.type === 'epicerie' || d.type === 'jouets') && d.bld.h >= 24) d.type = 'appart';
   for (const d of doors) if (d.service === 'cafe' || (d.type === 'resto' && !d.service)) buildTerrace(d);
   for (const d of doors) {
     const s = d.service ? SERVICES[d.service] : null;
@@ -2815,7 +2847,7 @@ function serviceMenu(d) {
   const kind = d.service;
   const enterRow = !inside ? [{ t: '🚪 Entrer dans le bâtiment', fn: () => { closeMenu(); enterDoor(d); }, keep: false }] : [];
   const openMenu = (T, rows, sub) => window._openMenu(T, [...rows], sub);
-  const buy = (ids) => ids.map(id => ({ t: ITEMS[id].n + ' — ' + ITEMS[id].p + ' $', fn: () => { if (payMoney(ITEMS[id].p)) { give(id); banner('Acheté : ' + ITEMS[id].n, 900); } } }));
+  const buy = (ids) => ids.map(id => ({ img: id, t: ITEMS[id].n + ' — ' + ITEMS[id].p + ' $', fn: () => { if (payMoney(ITEMS[id].p)) { give(id); banner('Acheté : ' + ITEMS[id].n, 900); } } }));
   menu(() => {
     const T = SERVICES[kind].label;
     if (kind === 'banque') {
@@ -3351,7 +3383,9 @@ function buildJouets(toys) {
   const net = toys.find(n => /^T_Basketball_Net/.test(n)); if (net) iput(net, 12.3, 7.5, -Math.PI / 2);
   for (let k = 0; k < 6; k++) { const b = pick(small.filter(n => /Ball|Pin/.test(n)).concat(small).slice(0, 12)); iput(b, rr(8, 12), rr(6, 9.5), rr(0, 6), 0, false); }
   iput('R_StationTable_1_A', 10.5, 9.0, 0); roomNPC(10.5, 8.1, 'Idle_A-loop', Math.PI);
-  roomNPC(3.4, 4.5, 'LookingAround-loop', 0); if (chance(0.6)) roomNPC(9.0, 3.4, 'Runing_B-loop', 1.2);
+  roomNPC(3.4, 4.5, 'LookingAround-loop', 0);
+  // sport corner: a customer walks between the machines (stops in front of each one, facing it) instead of running in place inside them
+  const gp = gym.slice(0, 4).map((g, i) => ({ x: 8.0 + (i % 4) * 1.2, z: 1.2 + 1.05, face: Math.PI, clip: 'Idle_B-loop' })); if (gp.length >= 2) roomActor(gp.concat([{ x: 10, z: 4.4, face: 0, clip: 'LookingAround-loop' }]));
 }
 function buildEntrepot() {
   shell(6, 4, pickExisting(['I_Floor_03', 'I_Floor_05', 'I_Floor_08', 'I_Floor_12', 'I_Floor_10', 'I_Floor_14', 'I_Floor_20']), pickExisting(['I_Wall_13', 'I_Wall_14', 'I_Wall_02']), 3);
@@ -3853,14 +3887,23 @@ const SEAT = { y: 0.22, z: 0.32 }; // seat point in scooter space (forward is -Z
 const riders = [];
 function legBones(o) { const b = {}; o.traverse(n => { if (!n.isBone) return; const k = n.name.replace(/[^A-Za-z]/g, ''); if (/^UpperLeg[LR]$/.test(k)) b[k] = n; if (/^Leg[LR]$/.test(k)) b[k] = n; if (/^Hips$/.test(k)) b.Hips = n; if (/^Arm[LR]$/.test(k)) b[k] = n; if (/^ForeArm[LR]$/.test(k)) b[k] = n; }); return b; }
 function standPose(ch) { if (!ch.bones || !ch.rest) return; for (const [k, r] of Object.entries(ch.rest)) ch.bones[k].rotation.x = r; }
-function seatPose(ch) {
+// height to give a seated character so its thighs rest on a seat of height seatY (hip height measured on the rig)
+const HIPC = {};
+function sitDrop(ch, seatY) {
+  const k = ch.o.userData.model || ch.o.name || 'x'; let hip = HIPC[k];
+  if (hip === undefined) { let hb = null; ch.o.traverse(n => { if (n.isBone && /UpperLeg/.test(n.name) && !hb) hb = n; }); const p0 = ch.o.position.clone(); ch.o.position.set(0, 0, 0); ch.o.updateMatrixWorld(true); hip = hb ? hb.getWorldPosition(new THREE.Vector3()).y : 0.45; ch.o.position.copy(p0); HIPC[k] = hip; }
+  return seatY - hip + 0.06;
+}
+function seatPose(ch, rider) {
   if (!ch.bones) { ch.bones = legBones(ch.o); ch.rest = {}; for (const [k, b] of Object.entries(ch.bones)) ch.rest[k] = b.rotation.x; }
   const b = ch.bones, P = SEATPOSE;
   for (const s of ['L', 'R']) {
     // measured on the rig (auto=seattest): +x on the thigh brings the knee forward, +x on the shin drops the foot under the knee
     if (b['UpperLeg' + s]) b['UpperLeg' + s].rotation.x = ch.rest['UpperLeg' + s] + P.thigh;
     if (b['Leg' + s]) b['Leg' + s].rotation.x = ch.rest['Leg' + s] + P.knee;
-    if (b['Arm' + s]) b['Arm' + s].rotation.x = P.arm;
+    // arms (bind pose = T-pose; measured with auto=armtest: x -1.2 swings the arm forward, z lowers it outward-down, mirrored on the right)
+    const sg = s === 'L' ? 1 : -1;
+    if (b['Arm' + s]) { if (rider) b['Arm' + s].rotation.set(0.24 - 1.3, 0, sg * 0.32); else b['Arm' + s].rotation.set(0.24 - 0.55, 0, sg * 1.05); }
   }
 }
 const SEATPOSE = { thigh: 1.5, knee: 1.5, arm: -0.9 };
@@ -3874,10 +3917,10 @@ function addRider(car) {
   const ch = makeChar(pick(models)); play(ch, 'Idle_A-loop'); car.rider = ch; riders.push({ ch, car });
 }
 function updateRiders() {
-  for (const r of riders) { if (!r.car.obj.parent) { r.ch.o.visible = false; continue; } r.ch.o.visible = true; placeRider(r.ch, r.car.obj); seatPose(r.ch); }
-  if (L.sitting && !player.inCar) seatPose(player.ch);
+  for (const r of riders) { if (!r.car.obj.parent) { r.ch.o.visible = false; continue; } r.ch.o.visible = true; placeRider(r.ch, r.car.obj); seatPose(r.ch, true); }
+  if (L.sitting && !player.inCar) { seatPose(player.ch); player.ch.o.position.y = player.pos.y + sitDrop(player.ch, L.sitting.y || 0.45); player.ch.o.rotation.y = L.sitting.rot; }
   for (const s of sitters) seatPose(s);
-  if (player.inCar && isTwo(player.inCar.obj)) { player.ch.o.visible = true; placeRider(player.ch, player.inCar.obj); seatPose(player.ch); }
+  if (player.inCar && isTwo(player.inCar.obj)) { player.ch.o.visible = true; placeRider(player.ch, player.inCar.obj); seatPose(player.ch, true); }
 }
 // ================================================================ PUBLIC BUILDINGS: counters, tables, contracts
 // state kept in L: interim, offers, itask, util, utilDay, loan, loanDay, ins, insDay, gymUntil
@@ -3980,8 +4023,9 @@ function tableUI(seat) {
     const list = document.createElement('div'); list.className = 'ml'; m.append(list);
     let tot = 0;
     for (const id of RESTO_DISHES) { const it = ITEMS[id]; if (!it) continue; const n = q[id] || 0; tot += n * it.p;
-      const row = document.createElement('div'); row.className = 'qrow';
-      const lab = document.createElement('span'); lab.textContent = it.n + ' — ' + it.p + ' $'; row.append(lab);
+      const row = document.createElement('div'); row.className = 'qrow dish';
+      const th = itemThumb(id), pic = document.createElement('div'); pic.className = 'dpic'; pic.innerHTML = th ? '<img src="' + th + '">' : '<i>' + (ITEM_EMOJI[id] || '🍽️') + '</i>'; row.append(pic);
+      const lab = document.createElement('span'); lab.innerHTML = '<strong>' + it.n + '</strong><small>' + [it.eat && ('🍔 +' + it.eat), it.drink && ('💧 +' + it.drink), it.sleep && ('😴 +' + it.sleep)].filter(Boolean).join(' · ') + '</small><em>' + it.p + ' $</em>'; row.append(lab);
       const minus = document.createElement('button'); minus.textContent = '−'; minus.disabled = !n; minus.onclick = () => { q[id] = n - 1; draw(); };
       const qty = document.createElement('b'); qty.textContent = n;
       const plus = document.createElement('button'); plus.textContent = '+'; plus.onclick = () => { q[id] = n + 1; draw(); };
@@ -4143,7 +4187,7 @@ function updatePedLife(dt) {
     const d = doors.find(d => (d.service || d.type === 'resto') && Math.hypot(d.x - x, d.z - z) < 6);
     if (d && chance(0.5)) { p.away = true; p.o.visible = false; p.lt = rr(15, 45); continue; } // goes into the shop
     const b = benchSpots.find(b => !b.used && Math.hypot(b.x - x, b.z - z) < 8);
-    if (b && chance(0.6)) { b.used = true; p.benched = true; p.walking = false; p.o.position.set(b.x, SW + 0.05, b.z); p.o.rotation.y = b.rot; play(p, 'Idle_A-loop'); p.lt = rr(20, 60); setTimeout(() => b.used = false, p.lt * 1000); continue; }
+    if (b && chance(0.6)) { b.used = true; p.benched = true; p.walking = false; p.o.position.set(b.x, SW + sitDrop(p, b.y || 0.45), b.z); p.o.rotation.y = b.rot; play(p, 'Idle_A-loop'); p.lt = rr(20, 60); setTimeout(() => b.used = false, p.lt * 1000); continue; }
     if (!p.walking) { p.walking = true; play(p, pick(['Walk_A-loop', 'Walk_B-loop', 'Walk_C-loop'])); }
   }
 }
@@ -5259,6 +5303,25 @@ function start() {
         const car = parkedPlayerCars.find(c => c.owned) || (() => { const o = makeObject(CARS[0]); scene.add(o); const c = { obj: o, speed: 0, owned: true, name: 'Test' }; parkedPlayerCars.push(c); return c; })();
         car.obj.position.set(lineX(6), RT + 0.24, lineX(6) + 20); const b0 = badlyParked(car); for (let i = 0; i < 260; i++) updateImpound(0.5);
         const imp = (L.impound || []).length; M.money = 200; const d = doors.find(d => d.service === 'police'); const rows = impoundRows(d); rows[1] && rows[1].fn(); console.log('IMPOUND bad=' + b0 + ' impounded=' + imp + ' back=' + parkedPlayerCars.includes(car) + ' money=' + M.money);
+      } else if (auto === 'armtest') {
+        const ch = makeChar(Object.keys(skinned)[0]); scene.add(ch.o); ch.o.position.set(0, 0, 0); ch.o.updateMatrixWorld(true);
+        const bn = {}; ch.o.traverse(n => { if (n.isBone) bn[n.name.replace(/[^A-Za-z]/g, '')] = n; }); const A = bn[Q.get('side') || 'ArmL'], S = null, H = bn[(Q.get('side') || 'ArmL').replace('Arm', 'Hand')], r0 = A.rotation.clone(); const wp = n => n.getWorldPosition(new THREE.Vector3());
+        console.log('ARM rest hand-sh ' + wp(H).sub(wp(A)).toArray().map(v => v.toFixed(2)) + ' arm rot ' + r0.toArray().slice(0, 3).map(v => (+v).toFixed(2)));
+        for (const ax of ['x', 'y', 'z']) for (const s of [-1, 1]) { A.rotation.copy(r0); A.rotation[ax] += s * 1.2; ch.o.updateMatrixWorld(true); console.log('ARM ' + ax + s + ' ' + wp(H).sub(wp(A)).toArray().map(v => v.toFixed(2))); }
+      } else if (auto === 'sitview') {
+        const p0 = player.pos.clone(); player.ch.o.visible = false;
+        const bn = Q.get('b') || 'Bench_1_A', bo = makeObject(bn); const br = 0.6; bo.position.set(p0.x + 2, SW, p0.z); bo.rotation.y = br; scene.add(bo);
+        const s = benchSeat(bn, p0.x + 2, p0.z, br), c = makeChar(Object.keys(skinned)[2]); scene.add(c.o); c.o.position.set(s.x, SW + sitDrop(c, s.y), s.z); c.o.rotation.y = s.rot; play(c, 'Idle_A-loop'); sitters.push(c);
+        const sc = makeObject('C_Femintine'); sc.position.set(p0.x - 1.5, SW + 0.24, p0.z + 1); sc.rotation.y = 1.2; scene.add(sc); const rc = makeChar(Object.keys(skinned)[5]); scene.add(rc.o); play(rc, 'Idle_A-loop'); riders.push({ ch: rc, car: { obj: sc } });
+        setFreeCam(true); camera.position.set(p0.x + 0.5, SW + 1.6, p0.z + 5.5); controls.target.set(p0.x + 0.3, SW + 0.6, p0.z + 0.5); controls.update();
+      } else if (auto === 'foods') {
+        window.PENDING = (async () => { await loadInteriorPack(); const ns = Object.keys(proto).filter(n => /^(Food|FoodProp|Burger|HotDog|Pizza|Cake|Cookie|Donat|Bread|Coffee|Mug|Plate|R_Dish|R_Chess|R_Cake|R_Coffy|G_Pizza|G_Cake|G_Croissant|G_Meat|G_Fish|G_Cheese|R_)/.test(n)).filter(n => !Q.get('rp') || new RegExp(Q.get('rp')).test(n)).sort().slice(0, 96);
+          const ov = document.createElement('div'); ov.style.cssText = 'position:fixed;inset:0;z-index:999;background:#fff;display:grid;grid-template-columns:repeat(12,1fr);font:9px sans-serif;overflow:hidden'; document.body.append(ov);
+          for (const n of ns) { ITEM_MODEL['__' + n] = [n]; delete THUMB['__' + n]; ov.insertAdjacentHTML('beforeend', '<div><img style="width:100%" src="' + itemThumb('__' + n) + '"><br>' + n + '</div>'); } })();
+      } else if (auto === 'restomenu') {
+        const d = doors.find(d => d.type === 'resto'); window.PENDING = (async () => { await enterDoor(d); const s = inside.room.seats && inside.room.seats[0]; if (s) tableUI(s); })();
+      } else if (auto === 'svcfit') {
+        const r = {}; for (const d of doors) if (d.service) (r[d.service] = r[d.service] || []).push(Math.round(d.bld.h)); console.log('SVCFIT ' + JSON.stringify(r) + ' types ' + JSON.stringify(doors.reduce((a, d) => (a[d.type] = (a[d.type] || 0) + 1, a), {})));
       } else if (auto === 'lotview') {
         const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
