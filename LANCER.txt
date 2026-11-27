@@ -1,0 +1,101 @@
+CARTOON CITY - jeu
+
+LANCEMENT
+La page charge ses fichiers par fetch : elle doit etre servie par un petit serveur local
+(un double-clic sur index.html ne fonctionne pas).
+1. Ouvre un terminal dans ce dossier
+2. Lance :   npx serve .        (ou : python -m http.server 8000)
+3. Ouvre http://localhost:3000 (ou :8000) dans Chrome / Edge / Firefox
+Premier chargement : ~254 Mo de modeles, compter 30 s a 1 min.
+
+COMMANDES
+ZQSD (AZERTY) / WASD / fleches : se deplacer, conduire
+Maj : courir / turbo          Espace : sauter / frein a main
+E : monter dans le vehicule le plus proche / descendre (a l'arret)
+Clic + souris : tourner la camera     Molette : zoom
+C : camera libre (visite)      M : afficher/masquer la minicarte
+T : telephone (Carte, Taxi, Urgences, Reparateur, Livraison, Banque, Meteo, Missions, Parking, Logement, Internet)
+Mobile : moitie gauche = joystick, moitie droite = camera
+
+CONTENU
+895 batiments (tous ceux du pack, chacun une fois, aucun chevauchement)
+299 modeles de PNJ (zombies exclus), ~400 PNJ animes qui marchent sur les trottoirs
+320 voitures qui circulent, s'arretent devant le joueur et devant les voitures garees par le joueur
+Collisions avec les batiments, les voitures, les arbres, lampadaires, feux, bancs, poubelles, abribus, etc.
+Toutes les voitures de la circulation sont conduisibles
+Feux tricolores fonctionnels (cycle de 24 s) : les voitures s'arretent au rouge
+Camera qui ne traverse plus les murs ni les arbres
+
+BUS
+Trois lignes (rouge, bleue, verte sur la minicarte), 32 arrets avec abribus face a la route.
+Attends a un arret : quand le bus est la, E pour monter (2 $). E pour descendre quand le bus est a un arret.
+Tu commences avec 20 $.
+
+PARKINGS
+Grand parking avec entrees, petits parkings dans les cours d'immeubles avec acces a la rue,
+places en bord de route. Toutes les voitures garees sont conduisibles (E).
+
+VEHICULES
+Bus, ambulance, police, SMAT, taxis, camions de glaces, 12 voitures de sport, 10 pick-up,
+7 voitures postales, 8 vans (tes fichiers FBX) + les vehicules du pack.
+
+MISSIONS (colonnes de lumiere, aussi sur la minicarte)
+Bleu  : contre la montre - rejoindre un point avant la fin du chrono (+150 $)
+Jaune : taxi - prendre une voiture, chercher le client, le deposer a temps (+300 $)
+Vert  : collecte - ramasser 10 pieces en 2 min (+10 $ par piece, +200 $ bonus)
+Les missions se relancent 4 s apres la fin.
+
+PERFORMANCES
+Si ca rame : ajoute a l'adresse  ?cars=150&peds=1   ou  ?noao  (sans occlusion)
+
+Code source : src/main.js  (bundle : npx esbuild src/main.js --bundle --minify --outfile=city.js)
+
+BATIMENTS VISITABLES
+301 portes (cercle de couleur devant la facade, points sur la minicarte). E pour entrer / sortir.
+Appartement (bleu), Restaurant (orange), Epicerie (vert), Jouets & Sport (rose), Entrepot (beige).
+Les interieurs se chargent au premier passage d une porte (~60 Mo, quelques secondes).
+
+METIERS (prendre un metier : E sur la colonne devant le batiment)
+Pompier (caserne) : camion de pompiers, F pour arroser l incendie (+250 $)
+Ambulancier (hopital) : chercher le blesse, le ramener a l hopital (+200 $)
+Taxi (agence) : courses dans la ville (paye selon la distance)
+Livreur (depot) : charger 4 colis, livrer aux portes (+60 $ / colis, +80 $ bonus)
+Fermier (ferme au sud) : semer 5 $, arroser, recolter, vendre au stand (8 $ / legume)
+Recolteur (carriere au nord) : maintenir E sur pierre / bois / minerais, vendre a l entrepot ou une usine
+Garages : acheter une voiture de sport (250 $), reparer.
+
+VIE QUOTIDIENNE
+Jauges : faim, soif, hygiene, sommeil, sante. Hygiene basse = risque de maladie (medicament ou hopital).
+Sommeil ou sante a 0 : evanouissement, reveil a l hopital (-50 $).
+E : s asseoir sur un banc, dormir / se laver / coffre / cuisiner chez soi, prendre un produit sur une etagere (supermarche).
+I : inventaire (utiliser, deposer, porter, placer un meuble, recettes en cuisine). P : possessions.
+X : reprendre un meuble, R : tourner pendant le placement.
+Services (panneaux devant les portes, carres de couleur sur la minicarte) : banque, pharmacie, supermarche, cafe/bar,
+magasin de meubles, agence d emploi (GPS vers les metiers), agence immobiliere (louer 40 $/5 min ou acheter 1500 $),
+mairie (permis 100 $, aide sociale), commissariat (amendes de feux rouges), bureaux (travail 20 s), concession (vehicules, permis requis),
+station-service (essence). Usines et entrepot : vendre ou travailler. Hopital : soins.
+Vehicules : essence et etat (chocs) ; garage = reparation 20 $.
+Sauvegarde automatique dans le navigateur toutes les 15 s.
+
+TEMPS ET LUMIERES
+1 h reelle = 1 journee (aube 6h, jour, coucher de soleil 19h, nuit 21h). Horloge dans le panneau de droite.
+La nuit : lampadaires allumes, fenetres eclairees au hasard, phares et feux arriere des voitures, etoiles.
+Dormir avance le temps de 8 h. Test d une heure precise : ajouter ?hour=22 a l adresse.
+PIECES
+Appartements cloisonnes (chambre, cuisine, salon, salle de bain). Tous les services ont un interieur
+(hall + 2 pieces) : guichet au fond du hall (E).
+
+NOUVEAU
+- Telephone (T ou bouton jaune) : Carte, Taxi, Urgences, Reparateur, Livraison de repas, Banque, Meteo, Missions, Parking, Logement, Fournisseurs (verrouille), Internet. Recherche d'applis, notifications, heure, batterie (se recharge chez toi).
+- Parkings a barrieres : 5 $ a l'entree, la barriere se leve. Clotures le long des parkings.
+- Zone payante au centre-ville (en bleu sur la carte) : 3 $/h via l'appli Parking ou l'horodateur, sinon amende de 25 $.
+- Hall d'immeuble : accueil pour louer/acheter, escalier reserve aux residents. Hall de l'hopital avec accueil des urgences.
+- Mobile : joystick a gauche, camera a droite, boutons E / courir / sauter / sac / camera.
+- Police du jeu : mets un fichier ui/font.ttf (police cartoon) et il sera utilise automatiquement.
+
+BATIMENTS PUBLICS (cercle jaune devant chaque comptoir, E pour interagir)
+- Hopital : soins, devenir ambulancier. Concession : fiches vehicules (image, puissance, conso, places, coffre) puis achat.
+- Restaurant : E a une table = s'asseoir + menu avec quantites ; comptoir = a emporter ou livreur de repas.
+- Interim : inscription, offres recues sur le telephone (appli Missions). Mairie : pack electricite/gaz/eau 35 $/semaine (requis pour eau/cuisine chez soi).
+- Banque : pret, depot, retrait, solde. Assurance auto : 3 formules (30/60/90 % des reparations). Police : amendes ; au-dela de 150 $, retenue sur salaire.
+- Sport : terrain de basket, entrainement + abonnement (sante max 120 %).

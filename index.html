@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>Cartoon City</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#cfe3f4;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;user-select:none}
+  canvas{display:block;touch-action:none}
+  #status{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#26324a;pointer-events:none;text-shadow:0 1px 0 #fff;z-index:30}
+  #status:empty{display:none}
+  .btn{border:0;border-radius:10px;padding:9px 14px;background:rgba(255,255,255,.9);color:#1d2740;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  .btn:hover{background:#fff}
+  #start{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(20,30,60,.35);z-index:20}
+  #start .card{background:#fff;border-radius:18px;padding:26px 30px;max-width:460px;width:calc(100vw - 40px);box-shadow:0 12px 40px rgba(0,0,0,.25)}
+  #start h1{margin:0 0 6px;font-size:30px;color:#1d2740}
+  #start p{margin:0 0 14px;color:#47506a}
+  #start table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px}
+  #start td{padding:4px 0;color:#1d2740}#start td:first-child{font-weight:700;width:48%}
+  #start .row{display:flex;gap:10px;flex-wrap:wrap}
+  #start .go{background:#ff5a3c;color:#fff;font-size:16px;padding:12px 20px}
+  #hud{display:none}
+  #top{position:fixed;left:12px;top:12px;display:flex;gap:6px;flex-wrap:wrap;max-width:calc(100vw - 260px);z-index:10}
+  #minimap{position:fixed;right:12px;top:12px;width:220px;height:220px;border-radius:14px;border:3px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:10;background:#3c3f47}
+  #minimap.hidden{display:none}
+  #speed{position:fixed;right:20px;bottom:20px;font-size:34px;font-weight:800;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.5);display:none}
+  #prompt{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(20,26,40,.8);color:#fff;font-weight:700;padding:10px 16px;border-radius:10px;display:none}
+  #money{position:fixed;right:20px;top:248px;font-size:26px;font-weight:800;color:#3cff8a;text-shadow:0 2px 6px rgba(0,0,0,.6)}
+  #mission{position:fixed;left:12px;top:62px;background:rgba(20,26,40,.78);color:#fff;border-radius:12px;padding:10px 14px;max-width:320px;display:flex;flex-direction:column;gap:3px;font-size:14px}
+  #mission b{font-size:16px}
+  #job{position:fixed;left:12px;top:150px;background:rgba(120,30,20,.85);color:#fff;border-radius:12px;padding:10px 14px;max-width:340px;display:none;flex-direction:column;gap:3px;font-size:14px}
+  #job b{font-size:16px}
+  #needs{position:fixed;right:14px;top:290px;width:170px;background:rgba(20,26,40,.75);border-radius:12px;padding:8px 10px;color:#fff;font-size:12px;display:flex;flex-direction:column;gap:4px}
+  #needs div{display:flex;align-items:center;gap:6px}#needs i{flex:1;height:8px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden}#needs b{display:block;height:100%}
+  #needs em{font-style:normal}
+  #menu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100vw - 24px));max-height:80vh;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none;flex-direction:column;padding:16px;z-index:40;color:#1d2740}
+  #menu .mh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}#menu .mh b{font-size:20px}#menu .mh span{font-weight:700;color:#2e7d32}
+  #menu p{margin:0 0 8px;color:#47506a;font-size:14px}
+  #menu .ml{overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:4px}
+  #menu .ml i{font-style:normal;font-weight:700;color:#6a7390;font-size:13px;margin-top:6px}
+  #menu button{border:0;border-radius:10px;padding:10px 12px;background:#eef1f7;color:#1d2740;font-size:14px;text-align:left;cursor:pointer;min-height:40px}
+  #menu button:hover:not(:disabled){background:#dde4f2}#menu button:disabled{opacity:.45;cursor:default}
+  #menu .mc{margin-top:10px;background:#1d2740;color:#fff;text-align:center}
+  #fade{position:fixed;inset:0;background:rgba(0,0,0,.82);color:#fff;font-size:30px;font-weight:800;display:none;align-items:center;justify-content:center;z-index:35}
+  @media(max-width:700px){#needs{top:170px;width:130px}}
+  #banner{position:fixed;left:50%;top:28%;transform:translateX(-50%);font-size:34px;font-weight:900;color:#fff;text-shadow:0 3px 10px rgba(0,0,0,.6);display:none;text-align:center;pointer-events:none}
+  @media(max-width:700px){#money{top:150px}#mission{top:110px;max-width:60vw}}
+  #help{position:fixed;left:12px;bottom:12px;background:rgba(255,255,255,.85);border-radius:10px;padding:8px 12px;font-size:12px;color:#26324a;max-width:calc(100vw - 200px)}
+  @media(max-width:700px){#minimap{width:130px;height:130px}#top{max-width:calc(100vw - 160px)}#help{display:none}}
+
+  @font-face{font-family:GameFont;src:url(ui/font.ttf),url(ui/font.otf),url(ui/font.woff2)}
+  body,button,input{font-family:GameFont,'Arial Rounded MT Bold','Nunito','Varela Round','Comic Sans MS',system-ui,sans-serif!important;font-weight:800}
+  #banner,#job,#prompt{text-shadow:-1.5px -1.5px 0 #1d2740,1.5px -1.5px 0 #1d2740,-1.5px 1.5px 0 #1d2740,1.5px 1.5px 0 #1d2740,0 3px 0 #1d2740;letter-spacing:.3px}
+  #phone{position:fixed;right:18px;bottom:12px;width:300px;height:545px;z-index:40;transform:translateX(360px) rotate(8deg);transition:transform .35s cubic-bezier(.3,1.5,.5,1);pointer-events:none}
+  #phone.on{transform:none;pointer-events:auto}
+  #phone>img.frame{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #phScreen{position:absolute;left:13.8%;top:10.9%;width:72.4%;height:76.7%;background:linear-gradient(#bfe3ff,#e9f5ff);overflow:hidden;display:flex;flex-direction:column;border-radius:3px}
+  #phStatus{display:flex;justify-content:space-between;padding:3px 7px;font-size:11px;background:#1d2740;color:#fff}
+  #phBody{flex:1;overflow-y:auto;padding:6px;font-size:12px;color:#1d2740}
+  #phNav{display:flex;justify-content:space-around;background:#1d2740}
+  #phNav button{background:none;border:0;color:#fff;font-size:15px;padding:4px 10px;cursor:pointer}
+  #phHomeBtn{position:absolute;left:39%;bottom:2.2%;width:22%;height:5.5%;background:transparent;border:0;cursor:pointer}
+  .psearch{width:100%;box-sizing:border-box;border:2px solid #1d2740;border-radius:12px;padding:5px 8px;margin-bottom:6px;font-size:12px}
+  .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px}.papp{min-width:0}
+  .papp{background:#fff;border:2px solid #1d2740;border-radius:14px;padding:4px 2px;display:flex;flex-direction:column;align-items:center;cursor:pointer;box-shadow:0 3px 0 #1d2740;font-size:10px}
+  .papp:active{transform:translateY(2px);box-shadow:0 1px 0 #1d2740}
+  .papp img{width:38px;height:38px}
+  .pnot{margin-top:8px;background:#fff;border-radius:10px;padding:5px;border:2px solid #1d2740}
+  .pnot p{margin:3px 0;font-size:10px}
+  .phead{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:14px}.phead img{width:28px;height:28px}
+  .pr{display:block;width:100%;text-align:left;margin:4px 0;background:#ffd54f;border:2px solid #1d2740;border-radius:10px;padding:5px 7px;cursor:pointer;box-shadow:0 2px 0 #1d2740;font-size:11px}
+  .pr:disabled{opacity:.45}
+  .pt{white-space:pre-line;margin:4px 0}.dim{opacity:.6}.pbig{font-size:34px;margin:4px 0;text-align:center}
+  .pmap{width:100%;border-radius:10px;border:2px solid #1d2740}
+  #phOpen{position:fixed;right:14px;bottom:84px;z-index:39;width:54px;height:54px;border-radius:16px;border:3px solid #1d2740;background:#ffd54f;cursor:pointer;box-shadow:0 4px 0 #1d2740;font-size:26px}
+  #phBadge{position:absolute;top:-6px;right:-6px;background:#e53935;color:#fff;border-radius:10px;padding:0 6px;font-size:12px;display:none}
+
+  #touchUI{display:none}
+  body.touch #touchUI{display:block}
+  body.touch #help{display:none}
+  #joy{position:fixed;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;border:3px solid rgba(255,255,255,.8);background:rgba(29,39,64,.25);pointer-events:none;display:none;z-index:30}
+  #joy i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:#ffd54f;border:3px solid #1d2740}
+  .tb{position:fixed;z-index:31;width:62px;height:62px;border-radius:50%;border:3px solid #1d2740;background:#fff;box-shadow:0 4px 0 #1d2740;font-size:15px;font-weight:900;color:#1d2740;touch-action:none;-webkit-user-select:none}
+  .tb.down{transform:translateY(3px);box-shadow:0 1px 0 #1d2740;background:#ffd54f}
+  #tE{right:24px;bottom:150px;width:78px;height:78px;background:#ffd54f;font-size:22px}
+  #tRun{right:112px;bottom:96px}#tJump{right:24px;bottom:240px}#tInv{right:112px;bottom:176px;font-size:22px}
+  #tR{right:186px;bottom:96px;display:none}#tX{right:186px;bottom:176px;display:none}#tCam{right:24px;bottom:320px;width:50px;height:50px;font-size:20px}
+  body.touch.phon #touchUI{display:none}
+  body.touch #phOpen{right:8px;left:auto;bottom:auto;top:8px;width:46px;height:46px;font-size:22px}
+  @media(max-width:700px),(max-height:500px){#phone{height:min(94vh,545px);width:auto;aspect-ratio:660/1200;right:8px;bottom:3vh}#phBody{font-size:11px}.papp img{width:30px;height:30px}#minimap{display:none}}
+  @media(max-height:500px){#needs{transform:scale(.75);transform-origin:top right}#mission{font-size:11px;max-width:40vw}}
+  #gpsStrip{position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:35;display:none;align-items:center;gap:8px;background:#1d2740;color:#fff;border:3px solid #ffd54f;border-radius:16px;padding:4px 12px 4px 6px;max-width:70vw}
+  #gpsStrip i,.pgps i{display:inline-block;font-style:normal;font-size:24px;width:32px;height:32px;line-height:32px;text-align:center;background:#ffd54f;color:#1d2740;border-radius:50%;transition:transform .15s}
+  #gpsStrip b{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55vw}#gpsStrip span{font-size:11px;opacity:.9}
+  .pgps{display:flex;gap:8px;align-items:center;background:#fff;border:2px solid #1d2740;border-radius:10px;padding:6px;margin:6px 0;font-size:11px}
+  .dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;overflow-y:auto;max-height:62vh}
+  .dcar{background:#fff;border:3px solid #1d2740;border-radius:14px;padding:8px;color:#1d2740;font-size:12px}
+  .dcar img{width:100%;height:110px;object-fit:contain;background:#dfeaf5;border-radius:10px}
+  .dcar ul{margin:4px 0;padding-left:16px}.dcar p{margin:3px 0;opacity:.8}.dcar button{width:100%}
+  .qrow{display:flex;align-items:center;gap:8px;padding:3px 0}.qrow span{flex:1}.qrow button{width:34px}.qrow b{width:20px;text-align:center}
+  body.phon #phOpen{display:none}
+  html,body{overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  #menu,#phBody,.dgrid{touch-action:pan-y}
+  #start .card{max-height:92vh;overflow-y:auto;touch-action:pan-y}
+  .mobonly{display:none}
+  body.touch .mobonly{display:block} body.touch #start table{display:none}
+  #rotate{display:none;position:fixed;inset:0;z-index:99;background:#1d2740;color:#fff;align-items:center;justify-content:center;text-align:center;font-size:20px;padding:20px}
+  @media (orientation:portrait){body.touch #rotate{display:flex}}
+  #tZin{right:24px;bottom:390px;width:44px;height:44px;font-size:20px}#tZout{right:76px;bottom:390px;width:44px;height:44px;font-size:20px}
+  @media(max-height:500px){.tb{width:52px;height:52px;font-size:13px}#tE{width:66px;height:66px;bottom:110px;right:18px}#tRun{right:96px;bottom:70px}#tJump{right:18px;bottom:186px}#tInv{right:96px;bottom:140px}#tCam{right:150px;bottom:186px}#tR{right:162px;bottom:70px}#tX{right:162px;bottom:140px}#tZin{right:18px;bottom:252px}#tZout{right:68px;bottom:252px}#hud #top{display:none}body.touch #needs{top:6px!important;right:62px!important;bottom:auto!important;transform:scale(.72);transform-origin:top right}body.touch #money{top:8px;right:194px;font-size:20px}#tZin{left:14px;right:auto;bottom:auto;top:120px}#tZout{left:66px;right:auto;bottom:auto;top:120px}#mission{max-width:38vw;font-size:11px;padding:6px 8px}}
+  .kk{height:30px;vertical-align:middle;margin:1px}
+  #account{margin:10px 0;padding:10px;border:2px solid #dbe4ef;border-radius:12px;font-size:13px}
+  #account #accStatus{display:block;margin:4px 0;opacity:.8}
+  #accForm{display:flex;gap:6px;flex-wrap:wrap}#accForm input{flex:1;min-width:130px;padding:8px;border:2px solid #cbd5e1;border-radius:10px;font:inherit;touch-action:auto;-webkit-user-select:text;user-select:text}
+  #account .btn{padding:8px 12px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="status">Chargement…</div>
+<div id="start">
+  <div class="card">
+    <h1>Cartoon City</h1>
+    <p>Explore la ville à pied, monte dans n'importe quelle voiture et roule. Les colonnes de lumière sont des missions : contre la montre, taxi, collecte de pièces.</p>
+    <table>
+      <tr><td><img class="kk" src="ui/keys/z.png"><img class="kk" src="ui/keys/q.png"><img class="kk" src="ui/keys/s.png"><img class="kk" src="ui/keys/d.png"> / <img class="kk" src="ui/keys/w.png"><img class="kk" src="ui/keys/a.png"><img class="kk" src="ui/keys/s.png"><img class="kk" src="ui/keys/d.png"></td><td>se déplacer, conduire</td></tr>
+      <tr><td><img class="kk" src="ui/keys/shift.png"></td><td>courir / turbo</td></tr>
+      <tr><td><img class="kk" src="ui/keys/space_md.png"></td><td>sauter / freiner</td></tr>
+      <tr><td><img class="kk" src="ui/keys/e.png"></td><td>action : monter / descendre, guichets, portes</td></tr>
+      <tr><td><img class="kk" src="ui/keys/Move.png"></td><td>tourner la caméra · molette : zoom</td></tr>
+      <tr><td><img class="kk" src="ui/keys/f.png"></td><td>arroser (pompier)</td></tr>
+      <tr><td><img class="kk" src="ui/keys/i.png"> <img class="kk" src="ui/keys/p.png"></td><td>inventaire, recettes / possessions</td></tr>
+      <tr><td><img class="kk" src="ui/keys/x.png"> <img class="kk" src="ui/keys/r.png"></td><td>reprendre / tourner un meuble</td></tr>
+      <tr><td><img class="kk" src="ui/keys/c.png"> <img class="kk" src="ui/keys/m.png"></td><td>caméra libre · minicarte</td></tr>
+      <tr><td><img class="kk" src="ui/keys/t.png"></td><td>téléphone</td></tr>
+      <tr><td><img class="kk" src="ui/keys/escape.png"></td><td>fermer un menu</td></tr>
+      <tr><td>Mobile</td><td>gauche : joystick · droite : caméra</td></tr>
+    </table>
+    <p class="mobonly">📱 Joystick à gauche (glisse ton pouce) · glisse à droite pour tourner la caméra · pince pour zoomer · boutons à droite : E (action / voiture), courir, sauter-freiner, sac, caméra · téléphone en haut à gauche.</p>
+    <div id="account"><b>☁️ Compte joueur</b> <span id="accStatus">…</span>
+      <div id="accForm"><input id="accEmail" type="email" placeholder="e-mail" autocomplete="email"><input id="accPw" type="password" placeholder="mot de passe" autocomplete="current-password"><button id="accIn" class="btn">Connexion</button><button id="accUp" class="btn">Créer un compte</button></div>
+      <button id="accOut" class="btn" style="display:none">Déconnexion</button></div>
+    <div class="row">
+      <button class="btn go" onclick="startGame(false)">Jouer</button>
+      <button class="btn" onclick="startGame(true)">Visiter (caméra libre)</button>
+    </div>
+  </div>
+</div>
+<div id="hud">
+  <div id="top">
+    <button class="btn" id="modeBtn" onclick="setFreeCam(!document.getElementById('modeBtn').textContent.startsWith('Reprendre'))">Caméra libre (C)</button>
+    <button class="btn" onclick="setPreset('overview')">Vue d'ensemble</button>
+    <button class="btn" onclick="setPreset('centre')">Centre-ville</button>
+    <button class="btn" onclick="setPreset('basket')">Basket</button>
+    <button class="btn" onclick="setPreset('parking')">Parking</button>
+    <button class="btn" onclick="setPreset('usine')">Usine</button>
+    <button class="btn" onclick="this.textContent='Occlusion : '+(toggleAO()?'oui':'non')">Occlusion : oui</button>
+  </div>
+  
+  
+  <div id="touchUI"><div id="joy"><i></i></div>
+  <button class="tb" id="tE" data-k="KeyE">E</button><button class="tb" id="tRun" data-k="ShiftLeft" data-hold="1">🏃</button><button class="tb" id="tJump" data-k="Space" data-hold="1">⤒</button>
+  <button class="tb" id="tInv" data-k="KeyI">🎒</button><button class="tb" id="tR" data-k="KeyR">↻</button><button class="tb" id="tX" data-k="KeyX">✋</button><button class="tb" id="tCam" data-k="KeyC">🎥</button><button class="tb" id="tZin" data-zoom="0.8">＋</button><button class="tb" id="tZout" data-zoom="1.25">－</button></div>
+  <div id="rotate">📱↻<br>Tourne ton téléphone en mode paysage pour jouer</div>
+  <div id="gpsStrip"><i>⬆</i><div><b></b><span></span></div></div>
+  <button id="phOpen">📱<span id="phBadge"></span></button>
+  <div id="phone"><div id="phScreen"><div id="phStatus"></div><div id="phBody"></div><div id="phNav"><button id="phBackBtn">◀</button><button id="phClose">✕</button></div></div><img class="frame" src="ui/phone.png" alt=""><button id="phHomeBtn" title="Accueil"></button></div>
+  <canvas id="minimap" width="220" height="220"></canvas>
+  <div id="speed"></div>
+  <div id="money">0 $</div>
+  <div id="mission"></div>
+  <div id="job"></div>
+  <div id="needs"></div>
+  <div id="menu"></div>
+  <div id="fade"></div>
+  <div id="banner"></div>
+  <div id="prompt"></div>
+  <div id="help">ZQSD/WASD : bouger · Maj : courir · Espace : sauter/freiner · E : interagir · I : inventaire · Clic + souris : caméra · C : caméra libre</div>
+</div>
+<script src="city.js"></script>
+</body>
+</html>
