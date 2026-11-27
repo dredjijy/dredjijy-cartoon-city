@@ -9,6 +9,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { createClient } from '@supabase/supabase-js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 
 // ---------------------------------------------------------------- params
 const Q = new URLSearchParams(location.search);
@@ -81,12 +83,12 @@ function getTex(name) {
 const matCache = {};
 function sharedMat(m) {
   const tex = m.userData && m.userData.tex;
-  const key = m.name + '|' + (tex || '') + '|' + m.color.getHexString() + '|' + (m.transparent ? 1 : 0);
+  const key = m.name + '|' + (tex || '') + '|' + m.color.getHexString() + '|' + (m.transparent ? 1 : 0) + (m.side === THREE.DoubleSide ? '|2' : '');
   if (!matCache[key]) {
     const nm = new THREE.MeshStandardMaterial({
       name: m.name, color: m.color, map: getTex(tex),
       roughness: Math.max(0.55, m.roughness), metalness: Math.min(0.35, m.metalness),
-      transparent: m.transparent, opacity: m.opacity, side: THREE.FrontSide,
+      transparent: m.transparent, opacity: m.opacity, side: m.side === THREE.DoubleSide ? THREE.DoubleSide : THREE.FrontSide,
       alphaTest: m.alphaTest, envMapIntensity: 0.55,
     });
     if (/window|glass/i.test(m.name)) { nm.roughness = 0.25; nm.metalness = 0.3; nm.envMapIntensity = 1.0; }
@@ -287,11 +289,21 @@ const CHUNK = 400;
 const buckets = new Map(); // key -> {name, mats:[]}
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 const PUTLOG = [];
+const VARF = [[/^Tree_A_\d$/, /^Tree_[A-F]_\d_?$/], [/^Bush_1_A_\d$/, /^Bush_1_[ABC]_\d$/], [/^Bush_2_A_\d$/, /^Bush_2_[AB]_\d$/], [/^Flowers_\d_A$/, /^Flowers?_\d_[A-G]$/], [/^Grass_A_1$/, /^Grass_[A-E]_\d_?$/], [/^Pebles_1_A_1$/, /^Pebles_1_[A-E]_\d_?$/], [/^Rock_\d_A$/, /^Rock(Formation)?_\d(_A)?$/], [/^Plant_\d_A_1$/, /^Plant_\d_[ABC]_\d$/], [/^PlantPot_1_A$/, /^PlantPot_\d_[A-F]$/], [/^BushPot_1_A$/, /^BushPot_1_[A-E]$/],
+  [/^Bench_4_A$/, /^Bench_4_[A-D]$/], [/^Bench_2_A$/, /^Bench_[23]_[AB]$/], [/^PostBox_\d_A$/, /^PostBox_\d_[A-F]$/], [/^Trashbin_1_A$/, /^Trashbin_1_[A-D]$/], [/^Kiosk_1_A$/, /^Kiosk_1_[A-E]$/], [/^FoodCart_1_A$/, /^FoodCart_1_[A-E]$/], [/^Parasol_1_A$/, /^Parasol_1_[A-F]$/], [/^Table_1_A$/, /^Table_1_[A-H]$/], [/^Chair_1_A$/, /^Chair_[123]_[A-G]$/], [/^Cone_1$/, /^Cone_[12]$/], [/^Barier_4_A$/, /^Barier_4_[A-E]$/], [/^StreetLamp_3_A$/, /^StreetLamp_3_[A-D]$/],
+  [/^GasTank_\d_A$/, /^GasTank_\d_[A-H]$/], [/^Building_Factory_(\d)_A$/, null], [/^Basketball_Court_1$/, /^Basketball_Court_\d$/], [/^Basketball_Stand_A$/, /^Basketball_Stand_[A-F]$/], [/^Base_Basket_A$/, /^Base_Basket_[A-D]$/], [/^Lamp_Court_1_A$/, /^Lamp_Court_1_[A-G]$/], [/^Bilboard_2_A$/, /^Bilboard_[12]_[A-C]$/], [/^PizzaSign_1_A$/, /^PizzaSign_\d_[AB]$/], [/^BurgerSign_1$/, /^BurgerSign_(1|\d_[A-D])$/], [/^Fountain_1_A$/, /^Fountain_1_[AB]$/]];
+const VARC = {};
+function variantOf(name, x, z) {
+  if (name in VARC && !VARC[name]) return name;
+  if (!(name in VARC)) { VARC[name] = null; for (const [a, b] of VARF) if (a.test(name)) { const re = b || new RegExp('^' + name.replace(/_A$/, '_[A-D]') + '$'); if (!proto[name].bb) { VARC[name] = null; return name; } const s0 = proto[name].bb.getSize(new THREE.Vector3()), free = /^(Bush|Flower|Grass|Pebles|Plant)/.test(name); VARC[name] = Object.keys(proto).filter(n => { if (!re.test(n) || !proto[n].bb) return false; if (free) return true; const s = proto[n].bb.getSize(new THREE.Vector3()); return Math.abs(s.x - s0.x) < 0.25 * s0.x + 0.1 && Math.abs(s.z - s0.z) < 0.25 * s0.z + 0.1 && Math.abs(s.y - s0.y) < 0.35 * s0.y + 0.1; }).sort(); break; } if (!VARC[name] || VARC[name].length < 2) { VARC[name] = null; return name; } }
+  const L = VARC[name], h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1; return L[Math.floor(h * L.length)];
+}
 function put(name, x, y, z, rot = 0, sc = 1, sy) {
   if (!proto[name]) { console.warn('missing', name); return; }
+  if (!put._raw) name = variantOf(name, x, z);
   if (name === 'Parkomat') parkomats.push({ x, z });
-  PUTLOG.push([name, x, y, z]);
-  if (name === 'Basketball_Stand_A') hoops.push({ x, z });
+  PUTLOG.push([name, x, y, z, rot, sc]);
+  if (/^Basketball_Stand_/.test(name)) hoops.push({ x, z });
   if (/^Bench/.test(name)) benchSpots.push({ x, z, rot: (rot || 0) + Math.PI, used: false });
   const key = name + '@' + Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
   let b = buckets.get(key); if (!b) { b = { name, mats: [] }; buckets.set(key, b); }
@@ -313,13 +325,13 @@ function parkCar(name, x, z, rot) {
   const h = put(name, x, SW + 0.24, z, rot);
   if (h) parkedSpots.push({ name, x, z, rot, h });
 }
-const PROP_COL = /^(Tree_A|Lights_|StreetLamp|Lamp_Court|Trashbin|BinB|BinG|Hydrant|Bench_[1-4]_A$|BusStop|Kiosk|FoodCart|PostBox|NewspaperH|Parkomat|Fountain|Mayor_Statue|RockFormation|Fence_1_A|Barier_1_1|Container|GasTank|Crane|ConcrateTruck|SandHill|Generator|RubbleContainer|ForkLift|Basketball_Stand|SignHolder_4|Bollards|PlantPot|FlowerPot|Scaffolding|ChimneyPowerPlant|Pallet|Barrel|WoodStock|PipesBulk|BikePlace|Cone_1)/;
+const PROP_COL = /^(Tree_[A-F]|Lights_|StreetLamp|Lamp_Court|Trashbin|BinB|BinG|Hydrant|Bench_[1-4]_[A-D]$|Bilboard_2|SignHolder_1_|PlantPot|BushPot|BusStop|Kiosk|FoodCart|PostBox|NewspaperH|Parkomat|Fountain|Mayor_Statue|RockFormation|Fence_1_A|Barier_1_1|Container|GasTank|Crane|ConcrateTruck|SandHill|Generator|RubbleContainer|ForkLift|Basketball_Stand|SignHolder_4|Bollards|PlantPot|FlowerPot|Scaffolding|ChimneyPowerPlant|Pallet|Barrel|WoodStock|PipesBulk|BikePlace|Cone_1)/;
 const propCols = [], camCols = [];
 function propCollider(name, x, z, rot, sc) {
-  if (/^(Tree_A|Lights_|StreetLamp|Lamp_Court|Parkomat|Hydrant|Cone_1)/.test(name)) {
-    const r = /^Tree_A/.test(name) ? 0.32 * sc : 0.22;
+  if (/^(Tree_[A-F]|Lights_|StreetLamp|Lamp_Court|Parkomat|Hydrant|Cone_1)/.test(name)) {
+    const r = /^Tree_[A-F]/.test(name) ? 0.32 * sc : 0.22;
     propCols.push([x - r, z - r, x + r, z + r]);
-    if (/^Tree_A/.test(name) && name !== 'Tree_A_8') camCols.push({ x, z, r: 1.7 * sc, y0: 1.6 * sc, y1: 6.5 * sc });
+    if (/^Tree_[A-F]/.test(name) && name !== 'Tree_A_8') camCols.push({ x, z, r: 1.7 * sc, y0: 1.6 * sc, y1: 6.5 * sc });
     return;
   }
   if (name === 'SignHolder_4_A') { // two legs of the gantry
@@ -387,14 +399,14 @@ function putC(name, cx, cz, y, rot, sc = 1) { const f = footprint(name, rot); pu
 
 
 // keep doorways free: small street furniture standing in front of an entrance is dropped (with its collider and lamp light)
-const DOORWAY_PROP = /^(Tree_A|StreetLamp|Lamp_Court|Lights_5|Trashbin|BinB|BinG|Hydrant|Bench_|PostBox|NewspaperH|Parkomat|Cone_|Bollard|FoodCart|Bush)/;
+const DOORWAY_PROP = /^(Tree_[A-F]|Trashbag|SignHolder_1_|PlantPot|BushPot|StreetLamp|Lamp_Court|Lights_5|Trashbin|BinB|BinG|Hydrant|Bench_|PostBox|NewspaperH|Parkomat|Cone_|Bollard|FoodCart|Bush)/;
 let DOORWAY_CLEARED = 0;
 function clearDoorways() {
   const near = (x, z) => doors.some(d => { const dx = x - d.x, dz = z - d.z; const along = dx * d.out[1] - dz * d.out[0], out = dx * d.out[0] + dz * d.out[1]; return Math.abs(along) < 1.6 && out > -1.2 && out < 3.2; });
   const v = new THREE.Vector3();
   for (const b of buckets.values()) {
     if (!DOORWAY_PROP.test(b.name)) continue;
-    const inYard = (x, z) => /^Tree_A/.test(b.name) && jobLots.some(l => Math.abs(x - l.cx) < 18.5 && Math.abs(z - l.cz) < 18.5);
+    const inYard = (x, z) => /^Tree_[A-F]/.test(b.name) && jobLots.some(l => Math.abs(x - l.cx) < 18.5 && Math.abs(z - l.cz) < 18.5);
     const before = b.mats.length; b.mats = b.mats.filter(mt => { v.setFromMatrixPosition(mt); return v.y > 2.5 || (!near(v.x, v.z) && !inYard(v.x, v.z)); }); DOORWAY_CLEARED += before - b.mats.length;
   }
   for (let i = propCols.length - 1; i >= 0; i--) { const c = propCols[i]; const cx = (c[0] + c[2]) / 2, cz = (c[1] + c[3]) / 2; if (c[2] - c[0] < 1.2 && jobLots.some(l => Math.abs(cx - l.cx) < 18.5 && Math.abs(cz - l.cz) < 18.5) && Math.abs(c[2] - c[0] - 0.64) < 0.2) { propCols.splice(i, 1); continue; } if (c[2] - c[0] < 1.2 && near((c[0] + c[2]) / 2, (c[1] + c[3]) / 2)) propCols.splice(i, 1); }
@@ -552,8 +564,8 @@ function sidewalkProps(cx, cz, bi, bj, opts = {}) {
     for (const t of [-14, 2, 18]) if (free(t)) { const [x, z] = pos(t); put(main ? 'Lights_5_B' : 'Lights_5_A', x, SW, z, rot + Math.PI / 2); }
     if (main) for (let t = -18; t <= 18; t += 6.5) { if (!free(t + 1.2, 1.5)) continue; const [x, z] = pos(t + 1.2); put(pick(['Tree_A_5', 'Tree_A_6', 'Tree_A_7', 'Tree_A_5', 'Tree_A_2']), x, SW, z, rr(0, 6.28), rr(1.5, 1.9)); }
     else for (let t = -16; t <= 16; t += 12) if (chance(0.55) && free(t + 4.5, 1.5)) { const [x, z] = pos(t + 4.5); put(pick(['Tree_A_3', 'Tree_A_6', 'Tree_A_7', 'Tree_A_4']), x, SW, z, rr(0, 6.28), rr(1.5, 1.9)); }
-    const extras = [['Trashbin_1_A', 0.7], ['Bench_4_A', 0.45], ['Hydrant', 0.45], ['BinB', 0.15], ['PostBox_1_A', 0.2], ['NewspaperH', 0.15], ['Parkomat', 0.25], ['BikePlace', 0.15], ['FlowerPot_5_1_A', 0.3]];
-    for (const [nm, p] of extras) if (chance(p)) { const t = rr(-19, 19); if (!free(t, 1)) continue; const [x, z] = pos(t, nm === 'Bench_4_A' ? 21.2 : 22.6); put(nm, x, SW, z, rot + (nm === 'Bench_4_A' ? Math.PI / 2 : 0)); }
+    const extras = [['Trashbin_1_A', 0.7], ['Bench_4_A', 0.45], ['Hydrant', 0.45], ['BinB', 0.15], ['PostBox_1_A', 0.2], ['NewspaperH', 0.15], ['Parkomat', 0.25], ['BikePlace', 0.15], ['FlowerPot_5_1_A', 0.3], ['PlantPot_1_A', 0.2], ['BushPot_1_A', 0.15], ['Trashbag_A_1', 0.12], ['SignHolder_1_A', 0.12], ['Bilboard_2_A', 0.07], ['VENTS_1_A', 0]];
+    for (const [nm, p] of extras) if (chance(p)) { const t = rr(-17, 17); if (!free(t, nm === 'Bilboard_2_A' ? 2.6 : 1)) continue; const [x, z] = pos(t, nm === 'Bench_4_A' ? 21.2 : 22.6); put(nm, x, SW, z, rot + (nm === 'Bench_4_A' ? Math.PI / 2 : 0)); }
     if (chance(0.15) && free(10, 2)) { const [x, z] = pos(10, 21.5); put('FoodCart_1_A', x, SW, z, rot); }
   }
   for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) if (chance(0.5)) put('Bollards_1_A', cx + sx * 22.5, SW, cz + sz * 21, 0);
@@ -780,16 +792,20 @@ function blockParking(cx, cz, bi, bj) {
     const back = Math.abs(rz) > 10 ? Math.sign(rz) : -Math.sign(rz);
     parkCar(pick(CARS), cx + x, cz + rz, back > 0 ? 0 : Math.PI);
   }
-  put('Kiosk_1_A', cx + 17, SW, cz, Math.PI / 2);
+  put('Kiosk_1_A', cx + 14.5, SW, cz, Math.PI / 2);
   put('Parkomat', cx - 19, SW, cz - 4, 0); put('Parkomat', cx - 19, SW, cz + 4, 0);
   const lot = { x: cx, z: cz }; lotsParking.push(lot);
   // lifting barriers on every entrance (two half-arms per 6 m driveway), fences along the lot edges between entrances
   for (const sx of [-1, 1]) for (const t of [-10, 10]) { makeGate(cx + sx * 19.2, cz + t - 3, 0, lot); makeGate(cx + sx * 19.2, cz + t + 3, Math.PI, lot); }
-  if (proto.WallFence_1_1_A) for (const sx of [-1, 1]) for (const [a, b] of [[-19, -13], [-7, 7], [13, 19]]) for (let z = a + 1.05; z <= b - 1.0; z += 2.1) { put('WallFence_1_1_A', cx + sx * 19.8, SW, cz + z, Math.PI / 2); propCols.push([cx + sx * 19.8 - 0.1, cz + z - 1, cx + sx * 19.8 + 0.1, cz + z + 1]); }
+  // full fence around the private lot (pack Fence_1_D_1, 2 m panels along z): driveway gaps W/E, 2 m pedestrian gate in the middle of N and S
+  const FN = pickExisting(['Fence_1_D_1', 'Fence_1_E_1', 'Fence_1_B_1']) || 'WallFence_1_1_A';
+  const fpan = (x, z, r) => { put._raw = 1; put(FN, x, SW, z, r); put._raw = 0; const h = r ? [1, 0.12] : [0.12, 1]; propCols.push([x - h[0], z - h[1], x + h[0], z + h[1]]); };
+  for (const sx of [-1, 1]) for (const [a, b] of [[-20, -13.4], [-6.6, 6.6], [13.4, 20]]) { const n = Math.max(1, Math.round((b - a) / 2)), s = (b - a) / n; for (let k = 0; k < n; k++) fpan(cx + sx * 19.9, cz + a + s * (k + 0.5), 0); }
+  for (const sz of [-1, 1]) for (const [a, b] of [[-20, -1], [1, 20]]) { const n = Math.round((b - a) / 2), s = (b - a) / n; for (let k = 0; k < n; k++) fpan(cx + a + s * (k + 0.5), cz + sz * 19.9, Math.PI / 2); }
 }
 
 function blockFactory(cx, cz, bi, bj, big) {
-  { const pos = new THREE.Vector3(cx + 6, SW, cz + 21); const mk = makeMarker(0xffb74d, 6); mk.position.copy(pos); jobSpots.push({ kind: 'factory', def: { label: '🏭 Usine', sell: true }, pos, mk }); const sp = textPlaque('🏭 Usine · achat ressources', '#6d4c41', 5); sp.position.set(cx, SW + 14, cz + 18); }
+  { const pos = new THREE.Vector3(cx + 6, SW, cz + 21); const mk = makeMarker(0xffb74d, 6); mk.position.copy(pos); jobSpots.push({ kind: 'factory', def: { label: '🏭 Usine', sell: true }, pos, mk }); groundSign('🏭 Usine · achat ressources', '#6d4c41', cx - 4, cz + 19.2, 0); }
   blockBase(cx, cz, { interior: 'StreetTile_1_A_1' });
   sidewalkProps(cx, cz, bi, bj, { excl: busExcl(bi, bj), noBays: true });
   if (big) {
@@ -896,11 +912,17 @@ function spawnCars(n) {
 const _v = new THREE.Vector3();
 const obstacles = [];
 function updateCars(dt) {
+  // emergency vehicle with siren (player on duty, or a called tow truck / ambulance): traffic ahead of it pulls over to the right and stops
+  const em = []; try { if (sirenOn()) em.push(player.inCar.obj); for (const k of (typeof callouts !== 'undefined' ? callouts : [])) if (k.o && k.o.parent) em.push(k.o); } catch (e) {} if (window.EMTEST) em.push(window.EMTEST);
+  // spatial hash of all moving vehicles (16 m cells): each car only looks at its neighbours instead of all 300+
+  const CGc = 16, grid = updateCars.g || (updateCars.g = new Map()); grid.clear();
+  for (const o of cars) { const k = Math.floor(o.obj.position.x / CGc) * 4096 + Math.floor(o.obj.position.z / CGc); let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(o); }
+  const near = (c) => { const gx = Math.floor(c.obj.position.x / CGc), gz = Math.floor(c.obj.position.z / CGc), out = near.o || (near.o = []); out.length = 0; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a = grid.get((gx + i) * 4096 + gz + j); if (a) for (const o of a) out.push(o); } return out; };
   for (const c of cars) {
     // simple following: slow down if a car ahead on same lane
-    let target = c.speed;
+    let target = c.speed; const nb = near(c);
     if (c.mode === 'lane') {
-      for (const o of cars) if (o !== c && o.mode === 'lane' && o.a[0] === c.a[0] && o.a[1] === c.a[1] && o.b[0] === c.b[0] && o.b[1] === c.b[1]) {
+      for (const o of nb) if (o !== c && o.mode === 'lane' && o.a[0] === c.a[0] && o.a[1] === c.a[1] && o.b[0] === c.b[0] && o.b[1] === c.b[1]) {
         const gap = (o.t - c.t) * c.seg.s.distanceTo(c.seg.e);
         if (gap > 0 && gap < 8) target = Math.min(target, Math.max(0, (gap - 4.5) * 2));
       }
@@ -921,6 +943,15 @@ function updateCars(dt) {
         if (along > 0 && along < 10 && lat < 2.3) target = Math.min(target, Math.max(0, (along - 4.2) * 1.6));
       }
     }
+    // any other moving vehicle in front (turning cars, buses, cross traffic): brake instead of driving through it
+    { const ry = c.obj.rotation.y, fx = -Math.sin(ry), fz = -Math.cos(ry), px = c.obj.position.x, pz = c.obj.position.z;
+      if (!(c.stuck > 4)) for (const o of nb) { if (o === c) continue; const rx = o.obj.position.x - px, rz = o.obj.position.z - pz; if (rx * rx + rz * rz > 300) continue;
+        const along = rx * fx + rz * fz, lat = Math.abs(rx * fz - rz * fx); if (along > 0 && along < 16 && lat < 2.2) target = Math.min(target, Math.max(0, (along - 6.5) * 1.2)); }
+      c.stuck = target < 0.2 && c.speed > 0.5 ? (c.stuck || 0) + dt : 0; if (c.stuck > 6) c.stuck = 0; // 4 s stuck → ignore other cars for 2 s (no deadlock at crossings)
+      let pull = 0;
+      for (const e of em) { const rx = px - e.position.x, rz = pz - e.position.z, d2 = rx * rx + rz * rz; if (d2 > 900 || d2 < 1) continue; const er = e.rotation.y, efx = -Math.sin(er), efz = -Math.cos(er);
+        if (rx * efx + rz * efz > 0 && fx * efx + fz * efz > 0.5) pull = 1; else if (Math.sqrt(d2) < 14 && fx * efx + fz * efz < -0.5) target = Math.min(target, 1.5); }
+      c.pull = (c.pull || 0) + (pull - (c.pull || 0)) * Math.min(1, dt * 1.5); if (pull) target = Math.min(target, 0.3); }
     if (c.route) target = busTarget(c, target, dt);
     c.v += (target - c.v) * Math.min(1, dt * 2);
     if (c.mode === 'lane') {
@@ -939,6 +970,7 @@ function updateCars(dt) {
       } else {
         _v.lerpVectors(c.seg.s, c.seg.e, c.t); c.obj.position.copy(_v);
         c.obj.rotation.y = Math.atan2(c.seg.d[0], c.seg.d[1]) + Math.PI;
+        if (c.pull > 0.01) { const fx = -Math.sin(c.obj.rotation.y), fz = -Math.cos(c.obj.rotation.y); c.obj.position.x += -fz * 1.7 * c.pull; c.obj.position.z += fx * 1.7 * c.pull; }
       }
     }
     if (c.mode === 'turn') {
@@ -1070,7 +1102,7 @@ async function main() {
   await loadAll();
   await loadFBXVehicles();
   await loadJobsPack();
-  await loadExtras();
+  await loadExtras(); await loadX3();
   say('Construction de la ville…');
   catBuildings(); initCarsList();
   environment();
@@ -1142,7 +1174,8 @@ async function main() {
   console.log('instanced draws', draws, 'buckets', buckets.size, 'FIXED', FIXED.length, 'parked', parkedSpots.length, 'stops', busStops.length, 'rows', JSON.stringify(ROWSTAT), 'roof', JSON.stringify(ROOFSTAT), 'stoodUp', JSON.stringify(UPFIX), 'lots', lotsParking.length);
   initDayNight();
   initPlayer(); initHud(); initMissions(); initPaidZone(); initPhone(); initTouchUI(); loadVCat(); if (!SHOT) loadGame(); accountInit();
-  if (!SHOT) document.getElementById('start').style.display = 'flex';
+  if (SHOT || Q.get('dev')) document.body.classList.add('dev');
+  if (!SHOT) { document.getElementById('start').style.display = 'flex'; initMenu(); }
   setPreset(SHOT && SHOT !== 'play' ? SHOT : 'overview');
   start();
 }
@@ -1164,8 +1197,49 @@ function addCol(x0, z0, x1, z1, h = 0) {
       const k = gx + ',' + gz; if (!cgrid.has(k)) cgrid.set(k, []); cgrid.get(k).push(c);
     }
 }
+// building colliders follow the real walls at body height (0.5–1.7 m above the base), on a 0.5 m grid,
+// so awnings, balconies, stairs, open arcades and L-shapes no longer make invisible walls
+const CELLS = {};
+function wallCells(name) {
+  if (CELLS[name] !== undefined) return CELLS[name];
+  const P = proto[name], G = 0.5, y0 = P.bb.min.y + 0.5, y1 = P.bb.min.y + 1.7, set = new Set(), v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  for (const p of P.parts) {
+    const pos = p.geo.attributes.position, idx = p.geo.index, n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i += 3) {
+      for (let k = 0; k < 3; k++) v[k].fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(p.mtx);
+      const ya = Math.min(v[0].y, v[1].y, v[2].y), yb = Math.max(v[0].y, v[1].y, v[2].y); if (yb < y0 || ya > y1) continue;
+      const xa = Math.min(v[0].x, v[1].x, v[2].x), xb = Math.max(v[0].x, v[1].x, v[2].x), za = Math.min(v[0].z, v[1].z, v[2].z), zb = Math.max(v[0].z, v[1].z, v[2].z);
+      if ((xb - xa) * (zb - za) > 40 && yb - ya < 0.3) continue; // flat slab inside the band (podium, terrace floor): not a wall
+      for (let gx = Math.floor(xa / G); gx <= Math.floor(xb / G); gx++) for (let gz = Math.floor(za / G); gz <= Math.floor(zb / G); gz++) set.add(gx + ',' + gz);
+    }
+  }
+  if (set.size < 4) return CELLS[name] = null;
+  // fill cells enclosed by walls (the building's inside) row by row so the player cannot slip between wall cells
+  const rows = new Map(); for (const k of set) { const [a, b] = k.split(',').map(Number); if (!rows.has(b)) rows.set(b, []); rows.get(b).push(a); }
+  const boxes = [];
+  const zs = [...rows.keys()].sort((a, b) => a - b); let cur = null;
+  for (const gz of zs) { const xs = rows.get(gz), lo = Math.min(...xs), hi = Math.max(...xs) + 1;
+    if (cur && cur[4] === gz && Math.abs(cur[0] - lo * G) < 0.01 && Math.abs(cur[2] - hi * G) < 0.01) { cur[3] = (gz + 1) * G; cur[4] = gz + 1; continue; }
+    cur = [lo * G, gz * G, hi * G, (gz + 1) * G, gz + 1]; boxes.push(cur); }
+  for (const b of boxes) b.length = 4;
+  return CELLS[name] = boxes;
+}
 function buildColliders() {
-  for (const p of placed) addCol(p.x0 + 0.1, p.z0 + 0.1, p.x1 - 0.1, p.z1 - 0.1, SW + proto[p.nm].bb.max.y);
+  const logAt = new Map(); for (const e of PUTLOG) if (/^(Building|GS_|X_)/.test(e[0])) logAt.set(e[0] + '@' + e[1].toFixed(1) + ',' + e[3].toFixed(1), e);
+  const bigs = PUTLOG.filter(e => /^Building/.test(e[0]));
+  let fine = 0;
+  for (const p of placed) {
+    if (!proto[p.nm]) continue;
+    const e = bigs.find(q => q[1] > p.x0 - 1 && q[1] < p.x1 + 1 && q[3] > p.z0 - 1 && q[3] < p.z1 + 1 && Math.abs(proto[q[0]].bb.max.y - proto[p.nm].bb.max.y) < 3);
+    const cells = e && (e[5] || 1) === 1 ? wallCells(e[0]) : null;
+    if (!cells) { addCol(p.x0 + 0.1, p.z0 + 0.1, p.x1 - 0.1, p.z1 - 0.1, SW + proto[p.nm].bb.max.y); continue; }
+    const bs = proto[e[0]].bb.getSize(new THREE.Vector3()); let ar = 0; for (const [a, b, A, B] of cells) ar += (A - a) * (B - b);
+    const ratio = ar / (bs.x * bs.z); (buildColliders.r || (buildColliders.r = [])).push(e[0] + ':' + ratio.toFixed(2));
+    if (ratio < 0.45) { addCol(p.x0 + 0.1, p.z0 + 0.1, p.x1 - 0.1, p.z1 - 0.1, SW + proto[p.nm].bb.max.y); continue; }
+    fine++; const c = Math.cos(e[4] || 0), s = Math.sin(e[4] || 0), h = SW + proto[e[0]].bb.max.y;
+    for (const [a, b, A, B] of cells) { const xs = [], zs = []; for (const [lx, lz] of [[a, b], [A, b], [a, B], [A, B]]) { xs.push(e[1] + lx * c + lz * s); zs.push(e[3] - lx * s + lz * c); } addCol(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs), h); }
+  }
+  console.log('COLLIDERS fine=' + fine + ' of ' + placed.length + ' low=' + (buildColliders.r || []).filter(s => +s.split(':')[1] < 0.45).length + ' ' + (buildColliders.r || []).filter(s => +s.split(':')[1] < 0.45).slice(0, 15).join(' '));
   for (const e of extraCols) addCol(...e, 30);
   for (const e of propCols) addCol(...e, 0);
   for (const t of camCols) { const k = Math.floor(t.x / CG) + ',' + Math.floor(t.z / CG); if (!camGrid.has(k)) camGrid.set(k, []); camGrid.get(k).push(t); }
@@ -1487,7 +1561,7 @@ window.startGame = (free) => {
   if (MOBILE && !SHOT) { const el = document.documentElement; try { (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el)?.then?.(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch?.(() => {}); } catch (e) {} }
   document.getElementById('start').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
-  game.on = true;
+  game.on = true; game.started = true; document.getElementById('pause').classList.remove('on'); window.PAUSED = false;
   setFreeCam(!!free);
   if (free) setPreset('overview');
 };
@@ -1527,6 +1601,14 @@ const pickP = (re) => { const a = Object.keys(proto).filter(n => re.test(n)); re
 
 // ---- floating text signs
 // flat sign plate fixed on a facade (faces +Z locally, rotate toward the street)
+// building name sign standing at the entrance: the pack's framed sign board (Bilboard_1_A) with the name on both faces
+function groundSign(text, bg, x, z, rot, y = SW) {
+  const nx = Math.sin(rot), nz = Math.cos(rot);
+  if (proto.Bilboard_1_A) { put._raw = 1; put('Bilboard_1_A', x - nx * 0.27, y, z - nz * 0.27, rot - Math.PI / 2); put._raw = 0; propCols.push([x - 1.5, z - 1.5, x + 1.5, z + 1.5].map((v, i) => i % 2 ? z + (v - z) * (Math.abs(nz) > 0.5 ? 0.3 : 1) : x + (v - x) * (Math.abs(nx) > 0.5 ? 0.3 : 1))); }
+  const f = textPlaque(text, bg, 2.7); f.position.set(x + nx * 0.06, y + 1.5, z + nz * 0.06); f.rotation.y = rot;
+  const b = textPlaque(text, bg, 2.7); b.position.set(x - nx * 0.6, y + 1.5, z - nz * 0.6); b.rotation.y = rot + Math.PI;
+  return f;
+}
 function textPlaque(text, bg, w = 2.8) {
   const s = textSprite(text, bg, '#ffffff', w); scene.remove(s);
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicMaterial({ map: s.material.map, toneMapped: false, transparent: true }));
@@ -1572,6 +1654,150 @@ const J = { job: null, task: null, inv: {}, cooldown: 0, spray: 0, fires: [] };
 const INV_MAX = 40;
 const PRICES = { pierre: 4, bois: 5, cuivre: 10, fer: 12, argent: 18, or: 30, gemme: 50, legumes: 8 };
 
+// ================================================================ PACKS: Gas Station 24h Kit (GS_), KayKit RPG Tools (T_), Kay Lousberg crates (CR_), billboard (BB_)
+const GS_NAMES = ['Canopy_Column_Round', 'Canopy_Fascia_Straight', 'Canopy_Light_Panel', 'Canopy_Roof_Corner', 'Canopy_Roof_Straight_4m', 'Wash_Tunnel_Entry', 'Wash_Tunnel_Mid_4m', 'Apron_Concrete_Slab_4m', 'Crash_Bollard_Yellow', 'Fire_Extinguisher_Post', 'Neon_Clock_Moon_Open', 'Neon_Drop_Large', 'Island_Curb_End', 'Island_Curb_Straight_4m', 'Payment_Terminal_Post', 'Pump_Modern_Double', 'Bay_Wall_Module', 'Pylon_Tall_Modern', 'Store24_Floor_Tile_4m', 'Store24_Roof_Flat_4m', 'Store24_Wall_Corner', 'Store24_Wall_Door_Auto', 'Store24_Wall_Plain', 'Store24_Wall_Window_Big', 'Coffee_Island_Self_Serve', 'Counter_Checkout_Station', 'Drink_Cooler_Wall_Doors', 'Ice_Bag_Freezer', 'Shelf_Snack_Wall_Station'];
+const T_NAMES = ['anvil', 'axe', 'bucket_metal', 'chisel', 'file', 'grindstone', 'hammer', 'handdrill', 'handplane', 'knife', 'lantern', 'mallet', 'pickaxe', 'rope_bundle_A', 'rope_bundle_B', 'saw', 'scissors', 'shovel', 'tongs', 'trowel', 'wrench_A', 'wrench_B', 'screwdriver_A_long_color', 'screwdriver_B_long_color', 'nail', 'blueprint_stacked', 'journal_closed', 'map_rolled', 'torch'];
+const CR_NAMES = ['crate_onions', 'crate_lettuce', 'crate_carrots', 'crate_tomatoes'];
+const keepCache = {};
+function keepMat(m) { // pack materials with their own embedded texture (kit palette, tools atlas)
+  const k = m.map.uuid + '|' + (m.emissiveMap ? m.emissiveMap.uuid : '') + '|' + m.name;
+  if (!keepCache[k]) { m.map.colorSpace = THREE.SRGBColorSpace; keepCache[k] = new THREE.MeshStandardMaterial({ name: m.name, map: m.map, color: 0xffffff, emissive: m.emissiveMap ? 0xffffff : 0, emissiveMap: m.emissiveMap || null, emissiveIntensity: m.emissiveMap ? 0.6 : 0, roughness: Math.max(0.55, m.roughness ?? 0.8), metalness: Math.min(0.3, m.metalness ?? 0), transparent: m.transparent, alphaTest: m.alphaTest, envMapIntensity: 0.55 }); }
+  return keepCache[k];
+}
+function protoFrom(name, root, scale = 1, lift = 0) {
+  const w = new THREE.Group(); w.add(root); w.scale.setScalar(scale); w.updateMatrixWorld(true);
+  const bb0 = new THREE.Box3().setFromObject(w); if (lift !== null) { root.position.y -= bb0.min.y / scale; w.updateMatrixWorld(true); }
+  const parts = []; w.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material]; parts.push({ geo: o.geometry, mat: ms[0].map ? keepMat(ms[0]) : sharedMat(ms[0]), mtx: o.matrixWorld.clone() }); });
+  proto[name] = { parts: mergeParts(parts), bb: new THREE.Box3().setFromObject(w) };
+}
+async function loadX3() {
+  const gl = new GLTFLoader();
+  const job = [];
+  for (const n of GS_NAMES) job.push(gl.loadAsync(BASE + 'x3/gas/' + n + '.glb').then(g => protoFrom('GS_' + n, g.scene, 1, null)).catch(() => console.warn('missing GS', n)));
+  for (const n of T_NAMES) job.push(gl.loadAsync(BASE + 'x3/tools/' + n + '.gltf').then(g => protoFrom('T_' + n, g.scene, 1)).catch(() => console.warn('missing T', n)));
+  const fl = new FBXLoader();
+  for (const n of CR_NAMES) job.push(fl.loadAsync(BASE + 'x3/crates/' + n + '.fbx').then(o => { const b = new THREE.Box3().setFromObject(o), s = b.getSize(new THREE.Vector3()); protoFrom('CR_' + n, o, 0.6 / Math.max(s.x, s.z)); }).catch(() => console.warn('missing CR', n)));
+  job.push(new MTLLoader().loadAsync(BASE + 'x3/bb/materials.mtl').then(m => { m.preload(); const ol = new OBJLoader(); ol.setMaterials(m); return ol.loadAsync(BASE + 'x3/bb/model.obj'); }).then(o => { const b = new THREE.Box3().setFromObject(o), s = b.getSize(new THREE.Vector3()); o.traverse(q => { if (q.isMesh) for (const mm of [].concat(q.material)) mm.side = THREE.DoubleSide; }); protoFrom('BB_billboard', o, 6 / Math.max(s.x, s.z)); }).catch(e => console.warn('missing billboard', e)));
+  await Promise.all(job);
+}
+// ---- modular gas station (kit on its 4 m grid); the shop door keeps the existing interior
+function buildGasStation(cx, cz) {
+  const G = (n, x, z, r = 0, y = SW) => { if (proto['GS_' + n]) put('GS_' + n, x, y, z, r); };
+  // forecourt slabs under the canopy
+  for (let x = -18; x <= 18; x += 4) for (const z of [1, 5, 9, 13, 17]) G('Apron_Concrete_Slab_4m', cx + x, cz + z, 0, SW + 0.17);
+  // canopy 4 x 2 cells centred on the pumps
+  const xs = [-6, -2, 2, 6], zs = [5, 9];
+  for (const x of xs) for (const z of zs) { G('Canopy_Roof_Straight_4m', cx + x, cz + z); G('Canopy_Light_Panel', cx + x, cz + z); }
+  for (const x of xs) { G('Canopy_Fascia_Straight', cx + x, cz + 9, 0); G('Canopy_Fascia_Straight', cx + x, cz + 5, Math.PI); }
+  for (const z of zs) { G('Canopy_Fascia_Straight', cx + 6, cz + z, Math.PI / 2); G('Canopy_Fascia_Straight', cx - 6, cz + z, -Math.PI / 2); }
+  for (const [x, z] of [[-7.5, 3.5], [7.5, 3.5], [-7.5, 10.5], [7.5, 10.5]]) { G('Canopy_Column_Round', cx + x, cz + z); addCol(cx + x - 0.4, cz + z - 0.4, cx + x + 0.4, cz + z + 0.4, 5); }
+  // pump islands along the lanes (cars stop on the rings at x = ±4.5)
+  for (const px of [-4.5, 4.5]) {
+    const ix = cx + px + (px < 0 ? -1.6 : 1.6), iz = cz + 7;
+    G('Island_Curb_Straight_4m', ix, iz, Math.PI / 2); G('Island_Curb_End', ix, iz - 2.6, Math.PI / 2); G('Island_Curb_End', ix, iz + 2.6, -Math.PI / 2);
+    G('Pump_Modern_Double', ix, iz, Math.PI / 2, SW + 0.15); G('Payment_Terminal_Post', ix, iz + 1.6, Math.PI / 2, SW + 0.15);
+    G('Crash_Bollard_Yellow', ix, iz - 3.6); G('Crash_Bollard_Yellow', ix, iz + 3.6);
+    addCol(ix - 0.6, iz - 3.2, ix + 0.6, iz + 3.2, 1.2);
+  }
+  // 24h store (8 x 8 m) where the old shop stood: walls on the 2 m grid, front door to the forecourt
+  const sx = cx + 9, sz = cz - 20, W = 8, D = 8;
+  for (let x = 2; x < W; x += 4) for (let z = 2; z < D; z += 4) { G('Store24_Floor_Tile_4m', sx + x, sz + z, 0, SW + 0.17); G('Store24_Roof_Flat_4m', sx + x, sz + z); }
+  for (let i = 0; i < 4; i++) {
+    const x = sx + 1 + i * 2; G(i === 1 ? 'Store24_Wall_Door_Auto' : 'Store24_Wall_Window_Big', x, sz + D, 0); G('Store24_Wall_Plain', x, sz, Math.PI);
+    const z = sz + 1 + i * 2; G('Store24_Wall_Plain', sx, z, -Math.PI / 2); G(i === 2 ? 'Store24_Wall_Window_Big' : 'Store24_Wall_Plain', sx + W, z, Math.PI / 2);
+  }
+  for (const [x, z] of [[0, 0], [W, 0], [0, D], [W, D]]) G('Store24_Wall_Corner', sx + x, sz + z);
+  placed.push({ nm: 'GS_store', x0: sx, z0: sz, x1: sx + W, z1: sz + D }); addCol(sx, sz, sx + W, sz + D, 4.1);
+  G('Neon_Clock_Moon_Open', sx + 5.6, sz + D + 0.25, 0, SW + 3.1); G('Neon_Drop_Large', sx + 1.2, sz + D + 0.25, 0, SW + 3.1);
+  G('Fire_Extinguisher_Post', sx + W + 0.8, sz + D + 0.8); G('Crash_Bollard_Yellow', sx + 1, sz + D + 1.4); G('Crash_Bollard_Yellow', sx + 7, sz + D + 1.4);
+  // pylon at the street corner, car wash tunnel and lube bay at the back of the lot
+  G('Pylon_Tall_Modern', cx - 17, cz + 17, 0); addCol(cx - 18, cz + 16.6, cx - 16, cz + 17.4, 7);
+  G('Wash_Tunnel_Entry', cx - 14, cz - 16, 0); G('Wash_Tunnel_Mid_4m', cx - 14, cz - 12, 0); placed.push({ nm: 'GS_wash', x0: cx - 16.2, z0: cz - 18, x1: cx - 11.8, z1: cz - 10 }); addCol(cx - 16.2, cz - 18, cx - 15.8, cz - 10, 4); addCol(cx - 12.2, cz - 18, cx - 11.8, cz - 10, 4);
+  for (const x of [-6, -2]) G('Bay_Wall_Module', cx + x, cz - 19, 0); addCol(cx - 8, cz - 19.3, cx, cz - 18.7, 5);
+  return { door: [sx + 3, sz + D + 0.9] };
+}
+// ================================================================ MAIN MENU: account → character → solo / online / settings / quit, pause menu, key remapping
+const KEYACT = [['forward', 'Avancer', 'KeyW'], ['back', 'Reculer', 'KeyS'], ['left', 'Gauche', 'KeyA'], ['right', 'Droite', 'KeyD'], ['run', 'Courir', 'ShiftLeft'], ['jump', 'Sauter / freiner', 'Space'],
+  ['action', 'Action', 'KeyE'], ['inv', 'Inventaire', 'KeyI'], ['phone', 'Téléphone', 'KeyT'], ['cam', 'Caméra libre', 'KeyC'], ['map', 'Minicarte', 'KeyM'], ['water', 'Arroser (pompier)', 'KeyF']];
+let KEYMAP = {}; try { KEYMAP = JSON.parse(localStorage.getItem('cc_keys') || '{}'); } catch (e) {}
+const keyLabel = (c) => c.replace(/^Key/, '').replace(/^Digit/, '').replace('ShiftLeft', 'Maj').replace('Space', 'Espace').replace('ControlLeft', 'Ctrl').replace('Arrow', '↑→↓←'.includes ? 'Flèche ' : '');
+// translate the player's chosen key into the default code the game listens to (capture phase, before every other handler)
+for (const type of ['keydown', 'keyup']) addEventListener(type, (e) => {
+  if (e._cc || document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  const act = KEYACT.find(a => KEYMAP[a[0]] && KEYMAP[a[0]] === e.code && a[2] !== e.code); if (!act) return;
+  e.stopImmediatePropagation(); e.preventDefault(); const ev = new KeyboardEvent(type, { code: act[2], key: e.key, bubbles: true }); ev._cc = 1; (document.activeElement || document.body).dispatchEvent(ev);
+}, true);
+let CHAR = null; try { CHAR = JSON.parse(localStorage.getItem('cc_char') || 'null'); } catch (e) {}
+function setPlayerModel(name) {
+  if (!skinned[name] || !player.ch) return;
+  const pos = player.ch.o.position.clone(), rot = player.ch.o.rotation.y, old = player.ch;
+  old.o.parent && old.o.parent.remove(old.o); const i = mixers.indexOf(old.mixer); if (i >= 0) mixers.splice(i, 1);
+  player.ch = makeChar(name); player.ch.o.position.copy(pos); player.ch.o.rotation.y = rot; player.actions = {}; player.cur = null;
+  for (const k of ['Idle_A-loop', 'Walk_A-loop', 'Runing_A-loop', 'Jump_B_InAir-loop']) if (clips[k]) player.actions[k] = player.ch.mixer.clipAction(clips[k]);
+  setAnim('Idle_A-loop', 0); player.ch.bones = null; updateCarry();
+}
+const CHAR_THUMB = {};
+function charThumb(name) {
+  if (CHAR_THUMB[name]) return CHAR_THUMB[name];
+  ensureThumb();
+  const o = SkeletonUtils.clone(skinned[name]); thumbScene.add(o);
+  if (clips['Idle_A-loop']) { const mx = new THREE.AnimationMixer(o); mx.clipAction(clips['Idle_A-loop']).play(); mx.update(0.3); }
+  o.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(o), c = b.getCenter(new THREE.Vector3()), h = b.max.y - b.min.y || 1.6;
+  thumbCam.position.set(c.x + h * 0.5, c.y + h * 0.3, c.z + h * 2.3); thumbCam.lookAt(c.x, c.y, c.z); thumbCam.near = 0.05; thumbCam.far = 50; thumbCam.updateProjectionMatrix();
+  const prev = renderer.getRenderTarget(); renderer.setRenderTarget(thumbRT); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(thumbScene, thumbCam);
+  const px = new Uint8Array(128 * 128 * 4); renderer.readRenderTargetPixels(thumbRT, 0, 0, 128, 128, px); renderer.setRenderTarget(prev); thumbScene.remove(o);
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d'), im = g.createImageData(128, 128);
+  for (let y = 0; y < 128; y++) im.data.set(px.subarray((127 - y) * 512, (128 - y) * 512), y * 512); g.putImageData(im, 0, 0);
+  return CHAR_THUMB[name] = cv.toDataURL();
+}
+let setReturn = 'scrMenu';
+function showScr(id) {
+  document.querySelectorAll('#start .scr').forEach(s => s.classList.toggle('on', s.id === id));
+  if (id === 'scrChar') fillChars(); if (id === 'scrSet') fillKeys(); if (id === 'scrMenu') menuWho();
+}
+function menuWho() { const w = document.getElementById('menuWho'); if (w) w.textContent = (CHAR ? '🧍 ' + (CHAR.name || 'Joueur') : '') + (sbUser ? ' · ☁️ ' + sbUser.email : ' · 💾 sauvegarde locale'); }
+function fillChars() {
+  const g = document.getElementById('charGrid'); if (g.childElementCount) return; let sel = CHAR && CHAR.model || 'Character_1_1_1';
+  document.getElementById('charName').value = CHAR && CHAR.name || '';
+  for (const n of Object.keys(skinned).filter(n => !/_Z_/.test(n) && !/^PoliceMan/.test(n)).sort()) {
+    let src = ''; try { src = charThumb(n); } catch (e) { console.warn('thumb', n, e); }
+    const d = document.createElement('div'); d.innerHTML = '<img src="' + src + '">'; d.className = n === sel ? 'sel' : '';
+    d.onclick = () => { g.querySelectorAll('div').forEach(q => q.classList.remove('sel')); d.classList.add('sel'); sel = n; }; d.dataset.n = n; g.append(d);
+  }
+  document.getElementById('charOk').onclick = () => {
+    const name = document.getElementById('charName').value.trim() || 'Joueur'; const s = g.querySelector('.sel'); CHAR = { name, model: s ? s.dataset.n : sel };
+    localStorage.setItem('cc_char', JSON.stringify(CHAR)); setPlayerModel(CHAR.model); showScr('scrMenu');
+  };
+}
+function fillKeys() {
+  const L2 = document.getElementById('keyList'); L2.innerHTML = '';
+  for (const [id, lab, def] of KEYACT) {
+    const b = document.createElement('button'); b.textContent = keyLabel(KEYMAP[id] || def);
+    b.onclick = () => { b.classList.add('wait'); b.textContent = '…'; const h = (e) => { e.preventDefault(); e.stopImmediatePropagation(); removeEventListener('keydown', h, true); if (e.code !== 'Escape') { KEYMAP[id] = e.code; localStorage.setItem('cc_keys', JSON.stringify(KEYMAP)); } fillKeys(); }; addEventListener('keydown', h, true); };
+    L2.append(Object.assign(document.createElement('span'), { textContent: lab }), b);
+  }
+}
+function initMenu() {
+  document.querySelectorAll('#start [data-go]').forEach(b => b.onclick = () => showScr(b.dataset.go));
+  document.querySelectorAll('#start [data-tab]').forEach(b => b.onclick = () => { document.querySelectorAll('#start [data-tab]').forEach(q => q.classList.toggle('on', q === b)); document.querySelectorAll('#start .tab').forEach(t => t.style.display = t.id === b.dataset.tab ? 'block' : 'none'); });
+  document.querySelector('#start [data-go="scrSet"]').onclick = () => { setReturn = 'scrMenu'; showScr('scrSet'); };
+  document.getElementById('setBack').onclick = () => { if (setReturn === 'pause') { document.getElementById('start').style.display = 'none'; document.getElementById('pause').classList.add('on'); } else showScr(setReturn); };
+  document.getElementById('accNext').onclick = () => showScr(CHAR ? 'scrMenu' : 'scrChar');
+  document.getElementById('keyReset').onclick = () => { KEYMAP = {}; localStorage.removeItem('cc_keys'); fillKeys(); };
+  const vol = document.getElementById('volAll'); vol.value = localStorage.getItem('cc_vol') || 80; vol.oninput = () => localStorage.setItem('cc_vol', vol.value);
+  document.getElementById('btnOnline').onclick = () => {
+    if (!sbUser) { showScr('scrAcc'); document.getElementById('accStatus').textContent = 'Connecte-toi (ou crée un compte) pour jouer en ligne'; return; }
+    cloudPull && cloudPull(); window.startGame(false); banner('🌐 En ligne : ta partie est synchronisée sur ton compte', 3000);
+  };
+  document.getElementById('btnQuit').onclick = () => { if (game.started) saveGame(true); try { window.close(); } catch (e) {} document.getElementById('menuWho').textContent = '💾 Partie sauvegardée — tu peux fermer cet onglet.'; };
+  document.getElementById('pResume').onclick = () => { document.getElementById('pause').classList.remove('on'); window.PAUSED = false; };
+  document.getElementById('pSave').onclick = () => { saveGame(); banner('💾 Partie sauvegardée', 1400); };
+  document.getElementById('pSet').onclick = () => { document.getElementById('pause').classList.remove('on'); setReturn = 'pause'; document.getElementById('start').style.display = 'flex'; showScr('scrSet'); };
+  document.getElementById('pMenu').onclick = () => { saveGame(true); document.getElementById('pause').classList.remove('on'); game.on = false; document.getElementById('hud').style.display = 'none'; document.getElementById('start').style.display = 'flex'; showScr('scrMenu'); };
+  if (CHAR && CHAR.model) setPlayerModel(CHAR.model);
+  showScr('scrAcc');
+}
+function togglePause() { const p = document.getElementById('pause'); const on = !p.classList.contains('on'); p.classList.toggle('on', on); window.PAUSED = on; if (on) { keys.clear(); if (document.pointerLockElement) document.exitPointerLock(); } }
 // ---- job building block (placed on a city block)
 const jobLots = [];
 function blockJob(cx, cz, bi, bj, kind) {
@@ -1588,13 +1814,13 @@ function blockJob(cx, cz, bi, bj, kind) {
   if ((f.maxx - f.minx) > 40 || (f.maxz - f.minz) > 26) f = footprint(nm, Math.PI / 2);
   const rot = (footprint(nm, 0).maxx - footprint(nm, 0).minx) > 40 || (footprint(nm, 0).maxz - footprint(nm, 0).minz) > 26 ? Math.PI / 2 : 0;
   const w = f.maxx - f.minx, d = f.maxz - f.minz, x0 = cx - w / 2, z0 = cz - 20;
-  putAt(nm, x0, z0, SW, rot);
-  placed.push({ nm, x0, z0, x1: x0 + w, z1: z0 + d });
+  const KIT = !!(def.gas && proto.GS_Pump_Modern_Double);
+  if (!KIT) { putAt(nm, x0, z0, SW, rot); placed.push({ nm, x0, z0, x1: x0 + w, z1: z0 + d }); }
   // forecourt asphalt
   const fz0 = z0 + d + 0.5, fz1 = cz + 20;
   if ((kind === 'gas' || kind === 'garage')) { /* forecourt made of pack tiles below */ }
   else if (fz1 - fz0 > 2) flat(40, fz1 - fz0, cx, SW + 0.015, (fz0 + fz1) / 2);
-  const sp = textPlaque(def.label, def.color, 4); sp.position.set(cx, SW + Math.min(proto[nm].bb.max.y, 10) + 1.5, z0 + d + 0.5);
+  const sp = KIT ? textPlaque(def.label, def.color, 4) : groundSign(def.label, def.color, cx - 9, cz + 19.2, 0); if (KIT) sp.visible = false;
   // service vehicles parked in the forecourt
   if (def.veh) def.veh.forEach((v, i) => {
     const x = cx - 14 + i * 4.5, z = Math.min(fz1 - 3, fz0 + 3.5);
@@ -1605,11 +1831,12 @@ function blockJob(cx, cz, bi, bj, kind) {
   });
   if (kind === 'warehouse') for (let k = 0; k < 10; k++) { const n = pickP(/^K_(Containers|Pallet|Parts|Fuel)/); if (n) put(n, cx + rr(6, 18), SW, cz + rr(fz0 - cz + 1, 18), rr(0, 6), 1.6); }
   if (kind === 'gas') {
-    for (let x = -16; x <= 16; x += 8) for (const z of [4, 12]) put('ParkingRoad_A_5', cx + x, SW - 0.3, cz + z, 0);
+    if (!KIT) for (let x = -16; x <= 16; x += 8) for (const z of [4, 12]) put('ParkingRoad_A_5', cx + x, SW - 0.3, cz + z, 0);
     const pumps = [new THREE.Vector3(cx - 4.5, SW, cz + 7), new THREE.Vector3(cx + 4.5, SW, cz + 7)];
     for (const p of pumps) { const r = stopRing(0xf9a825); r.position.copy(p); pumpSpots.push(p); }
     for (let k = 0; k < 2; k++) stationVisitors.push({ cx, cz, pump: pumps[k], t: k * 14, car: null });
-    if (proto.X_Station) { putAt('X_Station', cx + 9, cz - 20, SW, 0); const f = footprint('X_Station', 0); placed.push({ nm: 'X_Station', x0: cx + 9, z0: cz - 20, x1: cx + 9 + f.maxx - f.minx, z1: cz - 20 + f.maxz - f.minz }); registerDoor(cx + 9 + (f.maxx - f.minx) / 2, cz - 20 + (f.maxz - f.minz) + 0.7, 0, 1); const d = doors[doors.length - 1]; d.service = 'station'; d.type = 'service'; } return; }
+    if (KIT) { const g = buildGasStation(cx, cz); registerDoor(g.door[0], g.door[1], 0, 1); const dd = doors[doors.length - 1]; dd.service = 'station'; dd.type = 'service'; }
+    else if (proto.X_Station) { putAt('X_Station', cx + 9, cz - 20, SW, 0); const f = footprint('X_Station', 0); placed.push({ nm: 'X_Station', x0: cx + 9, z0: cz - 20, x1: cx + 9 + f.maxx - f.minx, z1: cz - 20 + f.maxz - f.minz }); registerDoor(cx + 9 + (f.maxx - f.minx) / 2, cz - 20 + (f.maxz - f.minz) + 0.7, 0, 1); const d = doors[doors.length - 1]; d.service = 'station'; d.type = 'service'; } return; }
   if (kind === 'garage') {
     const bays = [];
     for (let x = -16; x <= 16; x += 8) for (const [z, r] of [[4, Math.PI], [12, 0]]) {
@@ -1619,7 +1846,7 @@ function blockJob(cx, cz, bi, bj, kind) {
     const free = bays.splice(4, 1)[0];
     for (const [x, z, r] of bays) if (chance(0.7)) parkCar(pick(CARS), x, z, r);
     const ring = stopRing(0x90caf9); ring.position.set(free[0], SW, free[1]); repairSpots.push(ring.position.clone());
-    put('ForkLift', cx + 14, SW, cz + 14, 1); for (let k = 0; k < 6; k++) { const n = pickP(/^K_(Parts|Fuel)/); if (n) put(n, cx + rr(8, 18), SW, cz + rr(10, 18), rr(0, 6), 1.4); } }
+    put('ForkLift', cx + 14, SW, cz + 14, 1); for (const [n, dx] of [['T_anvil', 9], ['T_bucket_metal', 10], ['T_grindstone', 11.5]]) if (proto[n]) put(n, cx + dx, SW, cz + 17.5, 0, 1.6); for (let k = 0; k < 6; k++) { const n = pickP(/^K_(Parts|Fuel)/); if (n) put(n, cx + rr(8, 18), SW, cz + rr(10, 18), rr(0, 6), 1.4); } }
   // interaction spot in front of the main door
   const pos = new THREE.Vector3(cx + 8, SW, Math.min(fz1 - 1.5, z0 + d + 2));
   if (def.gas) return;
@@ -1645,7 +1872,7 @@ const plots = [], nodes = [], sheep = [];
 function buildFarm() {
   const zc = HALF + 62, xc = -40;
   const ground = flat(150, 90, xc + 20, 0.02, zc, new THREE.MeshStandardMaterial({ color: 0x9ccc65, roughness: 1 }));
-  const sp = textPlaque('🌾 Ferme', '#558b2f', 7); sp.position.set(xc - 30, 9, zc - 30);
+  const sp = groundSign('🌾 Ferme', '#558b2f', xc - 30, zc - 44, Math.PI, 0.02);
   // farmhouse + barn-like shed + hay
   const house = pickP(/^Building_1_[23]_/) || 'Building_1_1_A'; putAt(house, xc - 48, zc - 40, 0, 0); { const f = footprint(house, 0); placed.push({ nm: house, x0: xc - 48, z0: zc - 40, x1: xc - 48 + f.maxx - f.minx, z1: zc - 40 + f.maxz - f.minz }); }
   for (let k = 0; k < 10; k++) put(pick(['N_Hay_1_A', 'N_Hay_2_A', 'N_Hay_1_C'].filter(n => proto[n])), xc - 40 + rr(-6, 10), 0, zc + rr(-5, 30), rr(0, 6));
@@ -1677,7 +1904,7 @@ function buildQuarry() {
   flat(170, 90, xc, 0.02, zc, new THREE.MeshStandardMaterial({ color: 0xbcaaa4, roughness: 1 }));
   if (proto.C_Quarry) { const o = makeObject('C_Quarry'); o.position.set(xc - 70, 0.24, zc + 30); o.rotation.y = 1; scene.add(o); parkedPlayerCars.push({ obj: o, speed: 0 }); }
   if (proto.C_Truck) { const o = makeObject('C_Truck'); o.position.set(xc - 62, 0.24, zc + 30); o.rotation.y = 1; scene.add(o); parkedPlayerCars.push({ obj: o, speed: 0 }); }
-  const sp = textPlaque('⛏️ Carrière & forêt', '#546e7a', 7); sp.position.set(xc - 60, 9, zc + 38);
+  const sp = groundSign('⛏️ Carrière & forêt', '#546e7a', xc - 60, zc + 44, 0, 0.02);
   const kinds = [
     ['pierre', /^N_Rock_/, 30, 1.6], ['pierre', /^K_Stone_Chunks/, 8, 2.2], ['cuivre', /^K_Copper_Nugget/, 8, 3], ['fer', /^K_Iron_Nugget/, 8, 3],
     ['argent', /^K_Silver_Nugget/, 5, 3], ['or', /^K_Gold_Nugget/, 4, 3], ['gemme', /^K_Gem_Large/, 3, 3], ['bois', /^N_(Conifer|Big|Poplar)/, 24, 1.3],
@@ -2213,6 +2440,8 @@ function openMenu(title, rows, sub = '') {
 function closeMenu() { UI.open = false; const m = document.getElementById('menu'); m.style.display = 'none'; m._refresh = null; }
 function menu(fn) { const m = document.getElementById('menu'); m._refresh = fn; fn(); }
 addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && document.getElementById('inv')) { closeInv(); return; }
+  if (e.code === 'Escape' && !UI.open && !L.placing && !PH.open && game.on) { togglePause(); return; }
   if (e.code === 'Escape') { if (UI.open) closeMenu(); else if (L.placing) cancelPlace(); }
   if (!game.on || UI.open) return;
   if (e.code === 'KeyI') openInventory();
@@ -2223,7 +2452,72 @@ addEventListener('keydown', (e) => {
 
 // ---- inventory
 function inCuisine() { return inside && ['appart', 'resto'].includes(inside.door.type); }
-function openInventory() {
+// ---- product pictures: each item is drawn from its own 3D model of the packs (rendered once, cached as an image)
+const ITEM_MODEL = {
+  eau: ['G_Bottle_1', 'G_Bottle_2'], soda: ['G_Can_1', 'G_Can_2'], lait: ['G_Milk_1'], cafe: ['G_Cofe_Cup_1', 'Coffee_1'], jus: ['G_Juice_Carton_1'],
+  pain: ['Bread_1_A', 'G_Bread_1_Tall'], fromage: ['G_Cheese_1'], tomate: ['G_Tomato'], salade: ['CR_crate_lettuce'], oeuf: ['Food_1_A'], pates: ['G_Food_Box'], viande: ['G_Meat_4'],
+  fruits: ['G_Apple_1', 'G_Orange'], sucre: ['Jar_1_A'], grains: ['Jar_2_A'], legumes: ['G_Carrot', 'CR_crate_carrots'], sandwich: ['Burger'], salade_comp: ['Food_2_B'], omelette: ['Food_1_B'],
+  pates_bolo: ['Food_3'], smoothie: ['G_Juice_Carton_4'], cafe_maison: ['Mug_1_A'], soupe: ['Food_4'], plat: ['Food_5', 'Food_1_C'], dessert: ['Cake_1_A', 'G_Cake_1'], biere: ['G_Bottle_4'],
+  croissant: ['G_Croissant'], medicament: ['G_Pills_1'], bandage: ['G_Pills_3'], savon: ['G_Solid_Soap_1', 'G_Fluid_Soap_1'], vitamines: ['G_Pills_2'],
+  pioche: ['T_pickaxe'], arrosoir: ['T_bucket_metal'], cle: ['T_wrench_A'], jerrycan: ['K_Fuel_A_Jerrycan'],
+};
+const itemModel = (id) => id.startsWith('F:') ? (proto[id.slice(2)] ? id.slice(2) : null) : ((ITEM_MODEL[id] || []).find(n => proto[n]) || null);
+const THUMB = {}; let thumbRT = null, thumbScene = null, thumbCam = null;
+function ensureThumb() { if (thumbRT) return; thumbRT = new THREE.WebGLRenderTarget(128, 128); thumbScene = new THREE.Scene(); thumbScene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 2.2)); const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(2, 3, 2); thumbScene.add(dl); thumbCam = new THREE.PerspectiveCamera(30, 1, 0.01, 100); }
+function itemThumb(id) {
+  if (THUMB[id] !== undefined) return THUMB[id];
+  const nm = itemModel(id); if (!nm) return THUMB[id] = null;
+  try {
+    ensureThumb();
+    if (false) { thumbRT = new THREE.WebGLRenderTarget(128, 128); thumbScene = new THREE.Scene(); thumbScene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 2.2)); const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(2, 3, 2); thumbScene.add(dl); thumbCam = new THREE.PerspectiveCamera(30, 1, 0.01, 100); }
+    const o = makeObject(nm); thumbScene.add(o); const b = new THREE.Box3().setFromObject(o), c = b.getCenter(new THREE.Vector3()), r = b.getSize(new THREE.Vector3()).length() / 2 || 0.2;
+    thumbCam.position.set(c.x + r * 2.2, c.y + r * 1.6, c.z + r * 2.6); thumbCam.lookAt(c); thumbCam.near = r * 0.05; thumbCam.far = r * 20; thumbCam.updateProjectionMatrix();
+    const prev = renderer.getRenderTarget(), pc = renderer.getClearColor(new THREE.Color()), pa = renderer.getClearAlpha(); renderer.setRenderTarget(thumbRT); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(thumbScene, thumbCam);
+    const px = new Uint8Array(128 * 128 * 4); renderer.readRenderTargetPixels(thumbRT, 0, 0, 128, 128, px); renderer.setRenderTarget(prev); renderer.setClearColor(pc, pa); thumbScene.remove(o);
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d'), im = g.createImageData(128, 128);
+    for (let y = 0; y < 128; y++) im.data.set(px.subarray((127 - y) * 512, (128 - y) * 512), y * 512); g.putImageData(im, 0, 0);
+    return THUMB[id] = cv.toDataURL();
+  } catch (e) { return THUMB[id] = null; }
+}
+const itemPrice = (id) => id.startsWith('F:') ? ((FURN.find(f => f[0] === id.slice(2)) || [])[2] || 0) : ((ITEMS[id] || {}).p || 0);
+function sellItem(id) {
+  if (!inside) { banner('Vends tes objets dans un magasin (entre dans une boutique)', 1800); return; }
+  const v = Math.max(1, Math.floor(itemPrice(id) * 0.5)); take(id); if (L.carry === id && !L.inv[id]) { L.carry = null; updateCarry(); }
+  M.money += v; updateMissionHud(); banner('💰 Vendu : ' + itemName(id) + ' +' + v + ' $', 1500);
+}
+async function openInventory() {
+  if (document.getElementById('inv')) { closeInv(); return; }
+  if (!ipackDone) { banner('Chargement des objets…', 900); await loadInteriorPack(); ipackDone = true; for (const k in THUMB) if (!THUMB[k]) delete THUMB[k]; }
+  const ov = document.createElement('div'); ov.id = 'inv'; document.body.append(ov); UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock();
+  const draw = () => {
+    const ids = Object.keys(L.inv).filter(k => L.inv[k] > 0);
+    ov.innerHTML = '<div class="invw"><div class="invh"><b>🎒 Inventaire</b><span>' + M.money + ' $ · ' + ids.length + ' objet' + (ids.length > 1 ? 's' : '') + '</span><button class="invx">✕</button></div><div class="invg"></div><div class="inva"></div><div class="invf"><button class="invr">👩‍🍳 Recettes & sac de travail</button></div></div>';
+    const grid = ov.querySelector('.invg'), act = ov.querySelector('.inva');
+    if (!ids.length) grid.innerHTML = '<p class="inve">Inventaire vide — achète des produits dans les magasins.</p>';
+    for (const id of ids) {
+      const c = document.createElement('div'); c.className = 'invc' + (L.carry === id ? ' on' : ''); const th = itemThumb(id), it = ITEMS[id] || {};
+      c.innerHTML = (th ? '<img src="' + th + '">' : '<i>' + (id.startsWith('F:') ? '🪑' : it.tool ? '🛠️' : '📦') + '</i>') + '<s>×' + L.inv[id] + '</s><u>' + itemName(id) + '</u>';
+      c.onclick = () => { grid.querySelectorAll('.invc').forEach(q => q.classList.remove('sel')); c.classList.add('sel'); actions(id); };
+      grid.append(c);
+    }
+    const actions = (id) => {
+      const it = ITEMS[id] || {}, A = [];
+      if (id.startsWith('F:')) A.push(['🪑 Placer chez moi', () => { closeInv(); startPlace(id); }]);
+      if (it.eat || it.drink || it.heal || it.cure || it.wash || it.sleep) A.push([(it.drink && !it.eat ? '🥤 Boire' : it.eat ? '🍽️ Manger' : '✨ Utiliser'), () => { useItem(id); draw(); }]);
+      if (id === 'jerrycan') A.push(['⛽ Utiliser sur le véhicule', () => { useItem(id); draw(); }]);
+      if (id === 'cle') A.push(['🔧 Réparer le véhicule', () => { useItem(id); draw(); }]);
+      if (!id.startsWith('F:') && !it.tool) A.push([L.carry === id ? '✋ Ranger (ne plus porter)' : '✋ Porter dans les mains', () => { L.carry = L.carry === id ? null : id; updateCarry(); draw(); }]);
+      if (!id.startsWith('F:')) A.push(['⬇️ Déposer par terre', () => { dropItem(id); draw(); }]);
+      A.push(['💰 Vendre (' + Math.max(1, Math.floor(itemPrice(id) * 0.5)) + ' $)' + (inside ? '' : ' — en magasin'), () => { sellItem(id); draw(); }, !inside]);
+      act.innerHTML = '<b>' + itemName(id) + '</b><small>' + [it.eat && ('🍔 +' + it.eat), it.drink && ('💧 +' + it.drink), it.heal && ('❤️ +' + it.heal), it.sleep && ('😴 +' + it.sleep), it.wash && ('🧼 +' + it.wash), it.cure && '💊 guérit', it.tool && 'outil équipé'].filter(Boolean).join(' · ') + '</small>';
+      for (const [txt, fn, dis] of A) { const b = document.createElement('button'); b.textContent = txt; b.onclick = fn; if (dis) b.className = 'dis'; act.append(b); }
+    };
+    ov.querySelector('.invx').onclick = closeInv; ov.querySelector('.invr').onclick = () => { closeInv(); openInventoryList(); };
+  };
+  draw();
+}
+function closeInv() { const o = document.getElementById('inv'); if (o) o.remove(); UI.open = false; }
+function openInventoryList() {
   menu(() => {
     const rows = [];
     const ids = Object.keys(L.inv).filter(k => L.inv[k] > 0);
@@ -2268,12 +2562,14 @@ let carryMesh = null;
 function updateCarry() {
   if (carryMesh) { carryMesh.parent && carryMesh.parent.remove(carryMesh); carryMesh = null; }
   if (!L.carry || !player.ch) return;
-  carryMesh = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.3, 0.3), new THREE.MeshStandardMaterial({ color: 0xc8a165 }));
-  carryMesh.position.set(0, 1.0, 0.35); player.ch.o.add(carryMesh);
+  const nm = itemModel(L.carry);
+  if (nm) { carryMesh = makeObject(nm); const s = new THREE.Box3().setFromObject(carryMesh).getSize(new THREE.Vector3()), k = Math.min(1, 0.4 / Math.max(s.x, s.y, s.z, 0.01)); carryMesh.scale.setScalar(k); carryMesh.position.set(0, 0.95, 0.35); }
+  else { carryMesh = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.3, 0.3), new THREE.MeshStandardMaterial({ color: 0xc8a165 })); carryMesh.position.set(0, 1.0, 0.35); }
+  player.ch.o.add(carryMesh);
 }
 function dropItem(id) {
   take(id); if (L.carry === id && !L.inv[id]) { L.carry = null; updateCarry(); }
-  const model = proto['K_Containers_Box_Small'] ? 'K_Containers_Box_Small' : null;
+  const model = itemModel(id) || (proto['K_Containers_Box_Small'] ? 'K_Containers_Box_Small' : null);
   const o = model ? makeObject(model) : new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: 0xc8a165 }));
   o.position.set(player.pos.x + Math.sin(player.heading) * 0.8, player.pos.y, player.pos.z + Math.cos(player.heading) * 0.8); scene.add(o);
   L.drops.push({ id, o }); banner('Déposé : ' + itemName(id), 1000);
@@ -2427,7 +2723,7 @@ function pickFurniture() {
   if (!best) return; r.group.remove(best.o); if (best.col) { const i = r.cols.indexOf(best.col); if (i >= 0) r.cols.splice(i, 1); } furnOf(inside.door.id).splice(furnOf(inside.door.id).indexOf(best), 1); give('F:' + best.m); banner('Meuble repris (inventaire) : déplace-le en le replaçant', 1600);
 }
 function onRoomBuilt(room, door) {
-  addCounterRing(room);
+  addCounterRing(room); try { renderer.compile(room.group || scene, camera); } catch (e) {}
   if (door.type === 'service' || door.type === 'epicerie' || door.type === 'jouets' || door.type === 'lobby') { roomActor(hallPoints(4, room), room); if (chance(0.6)) roomActor(hallPoints(4, room), room); }
   if (door.type === 'appart' && room.flat2) room.spots = flatSpots(room);
   else if (door.type === 'appart') room.spots = { bed: new THREE.Vector3(room.ox + 2.0, 0, room.oz + 1.6), bath: new THREE.Vector3(room.ox + 11.0, 0, room.oz + 6.8), kitchen: new THREE.Vector3(room.ox + 9.0, 0, room.oz + 1.4), chest: new THREE.Vector3(room.ox + 5.6, 0, room.oz + 0.6) };
@@ -2540,12 +2836,11 @@ function updateLife(dt) {
 function updateNeedsHud() {
   const el = document.getElementById('needs'); if (!el) return;
   const mo = document.getElementById('money'); if (mo && mo.textContent !== M.money + ' $') mo.textContent = M.money + ' $';
-  const n = L.needs; let h = '<em>🕗 ' + hourStr() + ' · Jour ' + GT.day + ' · ' + phase(GT.min / 60) + '</em>';
+  const n = L.needs; let h = '<p class="cash"><span>💵 ' + M.money + ' $</span><small>🏦 ' + L.bank + ' $</small></p><em>🕗 ' + hourStr() + ' · Jour ' + GT.day + ' · ' + phase(GT.min / 60) + '</em>';
   for (const k of Object.keys(NEED_ICONS)) { const v = Math.round(n[k]), c = v < 20 ? '#ff5a3c' : v < 45 ? '#ffc21a' : '#3cff8a'; h += '<div><span>' + NEED_ICONS[k] + '</span><i><b style="width:' + v + '%;background:' + c + '"></b></i></div>'; }
   if (L.sick) h += '<em>🤒 Malade</em>';
   const car = player.inCar; if (car) h += '<em>⛽ ' + Math.round(car.fuel ?? 100) + ' % · 🔧 ' + Math.round(car.hp ?? 100) + ' %</em>';
   if (L.gps && !inside) h += '<em>📍 ' + L.gpsLabel + ' : ' + Math.round(Math.hypot(L.gps.x - player.pos.x, L.gps.z - player.pos.z)) + ' m</em>';
-  h += '<em>🏦 ' + L.bank + ' $</em>';
   if (el._h !== h) { el._h = h; el.innerHTML = h; }
 }
 function lifePrompt() {
@@ -2631,7 +2926,7 @@ function initDoorMarks() {
 }
 
 // ---- lazy asset loading
-let ipackReady = null;
+let ipackReady = null, ipackDone = false;
 function loadInteriorPack() {
   if (ipackReady) return ipackReady;
   ipackReady = (async () => {
@@ -2640,7 +2935,10 @@ function loadInteriorPack() {
     for (const [ix, bin] of [['iindex.json', 'ipack.bin'], ['gindex.json', 'gpack.bin']]) {
     const idx = await (await fetch(BASE + ix)).json();
     const buf = await (await fetch(BASE + bin)).arrayBuffer();
-    await Promise.all(Object.entries(idx).map(async ([name, [off, len]]) => {
+    // parsed in small time slices so the game keeps running while the pack streams in (no freeze on the first door)
+    let slice = performance.now();
+    for (const [name, [off, len]] of Object.entries(idx)) {
+      if (performance.now() - slice > 6) { await new Promise(r => setTimeout(r, 0)); slice = performance.now(); }
       try {
         const g = await loader.parseAsync(buf.slice(off, off + len), '');
         g.scene.updateMatrixWorld(true);
@@ -2648,7 +2946,7 @@ function loadInteriorPack() {
         g.scene.traverse(o => { if (o.isMesh) { const mats = Array.isArray(o.material) ? o.material : [o.material]; if (mats.length === 1) parts.push({ geo: o.geometry, mat: sharedMat(mats[0]), mtx: o.matrixWorld.clone() }); else for (const grp of o.geometry.groups) { const geo = o.geometry.clone(); geo.clearGroups(); geo.setIndex(new THREE.BufferAttribute(geo.index.array.slice(grp.start, grp.start + grp.count), 1)); parts.push({ geo, mat: sharedMat(mats[grp.materialIndex]), mtx: o.matrixWorld.clone(), wheel: isWheel(o) }); } } });
         proto[name] = { parts: mergeParts(parts), bb: new THREE.Box3().setFromObject(g.scene) };
       } catch (e) { console.warn('int', name, e); }
-    }));
+    }
     }
     await loadX2();
     say('');
@@ -2782,7 +3080,7 @@ function buildResto() {
   // bar
   iput(pickExisting(['I_Bar_01', 'I_Bar_02']), 11.5, 2.4, 0); for (const dx of [-0.8, 0, 0.8]) iput(pickExisting(['I_BarChair_01', 'I_BarChair_02']), 11.5 + dx, 3.3, 0);
   // dining room
-  const dishes = ['R_Dish_1_PlateReady', 'R_Dish_2_Ready', 'R_Dish_3_Ready', 'R_Dish_4_Ready', 'R_Dish_5_Ready', 'R_Dish_6_Ready', 'R_Coffy_A', 'R_ChessBurger_Ready', 'R_Cake_3_Ready'];
+  const dishes = ['Burger', 'HotDog_1', 'HotDog_2', 'Pizza_A', 'PizzaSlice_A', 'Food_1_A', 'Food_2_B', 'Food_3', 'Mug_1_A', 'Mug_2_B', 'Coffee_1', 'R_Dish_1_PlateReady', 'R_Dish_2_Ready', 'R_Dish_3_Ready', 'R_Dish_4_Ready', 'R_Dish_5_Ready', 'R_Dish_6_Ready', 'R_Coffy_A', 'R_ChessBurger_Ready', 'R_Cake_3_Ready'];
   for (const tx of [2.5, 6.5, 10.5]) for (const tz of [5.4, 8.2]) {
     if (tx === 6.5 && tz === 8.2) continue; // keep the entrance free
     iput(pickExisting(['I_KitchenTable_01', 'I_KitchenTable_03']), tx, tz, 0);
@@ -2797,9 +3095,9 @@ function buildResto() {
   iput(pickExisting(['I_Flower_04', 'I_Flower_05']), 0.5, 9.5); iput(pickExisting(['I_Flower_06', 'I_Flower_07']), 14.5, 4.5);
 }
 // products lined up in tidy rows (assets only)
-const GROCERY = ['G_Can_1', 'G_Can_2', 'G_Can_3', 'G_Milk_1', 'G_Milk_2', 'G_Milk_3', 'G_Juice_Carton_1', 'G_Juice_Carton_4', 'G_Juice_Carton_5', 'G_Bottle_1', 'G_Bottle_2', 'G_Bottle_4', 'G_Fish_Can_1', 'G_Fish_Can_3', 'G_Honey_Container_1', 'G_Salt_Pot_1', 'G_Food_Box'];
+const GROCERY = ['Jar_1_A', 'Jar_1_D', 'Jar_1_G', 'Jar_2_A', 'Jar_2_E', 'Jar_2_I', 'Jar_3_B', 'Jar_3_F', 'Jar_3_K', 'BagFood_1_A', 'BagFood_1_C', 'BagFood_2_B', 'Ketchap', 'G_Can_1', 'G_Can_2', 'G_Can_3', 'G_Milk_1', 'G_Milk_2', 'G_Milk_3', 'G_Juice_Carton_1', 'G_Juice_Carton_4', 'G_Juice_Carton_5', 'G_Bottle_1', 'G_Bottle_2', 'G_Bottle_4', 'G_Fish_Can_1', 'G_Fish_Can_3', 'G_Honey_Container_1', 'G_Salt_Pot_1', 'G_Food_Box'];
 const PRODUCE = ['G_Apple_1', 'G_Apple_2', 'G_Orange_1', 'G_Lemon_1', 'G_Tomato_1', 'G_Carrot_1', 'G_Pear_1', 'G_Peach_1', 'G_Potato_1', 'G_Eggplant_1', 'G_Corn_1', 'G_Cucumber_1', 'G_Pepper_1'];
-const BAKERY = ['G_Bread_1_Tall', 'G_Bread_2_Tall', 'G_Bread_1_Small', 'G_Croissant_1', 'G_Donut_1', 'G_Cake_1', 'G_Cake_2', 'G_Chocolate_1', 'G_Pizza_1'];
+const BAKERY = ['Bread_1_A', 'Bread_1_B', 'Bread_1_C', 'Cake_1_A', 'Cake_1_B', 'Cookie_1_A', 'Cookie_2_B', 'Donat_1_B', 'Donat_1_C', 'Donat_1_D', 'G_Bread_1_Tall', 'G_Bread_2_Tall', 'G_Bread_1_Small', 'G_Croissant_1', 'G_Donut_1', 'G_Cake_1', 'G_Cake_2', 'G_Chocolate_1', 'G_Pizza_1'];
 const PHARMA = ['G_Pills_1', 'G_Pills_2', 'G_Pills_3', 'G_Fluid_Soap_1', 'G_Fluid_Soap_2', 'G_Fluid_Soap_3', 'G_Solid_Soap_1', 'G_Solid_Soap_2', 'G_Bottle_3', 'G_Bottle_5'];
 function stock(items, x0, x1, z, y, rot = 0, rows = 2, sc = 1.6, depth = 0.18) {
   const pool = items.filter(n => proto[n]); if (!pool.length) return;
@@ -2819,6 +3117,8 @@ function wallShelves(x, z0, z1, side, items, levels = [0.75, 1.25, 1.75]) { // p
 function buildEpicerie(food) {
   shell(5, 4, pickExisting(['I_Floor_03', 'I_Floor_05', 'I_Floor_08', 'I_Floor_12']), pickExisting(['I_Wall_02', 'I_Wall_09', 'I_Wall_10']), 2);
   const R = curRoom; R.shelves = [];
+  // fresh produce stand: Kay Lousberg vegetable crates along the west wall, two levels
+  for (let k = 0; k < 6; k++) { const n = 'CR_' + CR_NAMES[k % 4]; iput(n, 0.45, 4.6 + k * 0.7, Math.PI / 2); if (k % 2 === 0) iput('CR_' + CR_NAMES[(k + 1) % 4], 0.45, 4.6 + k * 0.7, Math.PI / 2, 0.42, false); }
   // refrigerated wall (north)
   const fr = ['G_Fridge_1', 'G_Fridge_2', 'G_Fridge_3'].filter(n => proto[n]);
   for (let k = 0; k < 9 && fr.length; k++) iput(fr[k % fr.length], 1.6 + k * 1.05, 0.55, 0);
@@ -2859,9 +3159,10 @@ function buildEntrepot() {
   for (let row = 0; row < 3; row++) for (let i = 0; i < 6; i++) {
     const x = 1.5 + i * 2.2, z = 1.2 + row * 2.6;
     if (x > 6 && x < 9 && row === 2) continue;
-    iput('R_StandShelf_1_A', x, z, 0); iputOn('R_StandShelf_1_A', smallk, x, z, 0, 3, 0.4);
+    iput('R_StandShelf_1_A', x, z, 0); iputOn('R_StandShelf_1_A', row === 1 ? T_NAMES.map(n => 'T_' + n) : smallk, x, z, 0, 3, 0.4);
   }
   for (let k = 0; k < 14; k++) iput(pick(big), rr(0.8, 14.2), rr(8, 9.6), rr(0, 6.28));
+  for (let k = 0; k < 6; k++) iput(pickExisting(CR_NAMES.map(n => 'CR_' + n)), 1 + k * 0.7, 9.4, 0); iput('T_anvil', 13.6, 8.4, 0.3); iput('T_grindstone', 12.2, 9.2);
   roomNPC(4, 8.8, 'LookingAround-loop', 0); roomNPC(11, 6.4, 'Idle_A-loop', Math.PI);
 }
 
@@ -3035,7 +3336,7 @@ function busAction() { // E key while on foot near a stop, or on a bus
     return true;
   }
   const st = stopNearPlayer(); if (!st) return false;
-  const b = busAtStop(st); if (!b) return false;
+  const b = busAtStop(st); if (!b) { busBoard(st); return true; }
   if (M.money < BUS_FARE) { banner('Pas assez d’argent (' + BUS_FARE + ' $)', 1600); return true; }
   M.money -= BUS_FARE; updateMissionHud();
   b.dwell = Math.max(b.dwell, 2.5);
@@ -3051,7 +3352,27 @@ function busPrompt() {
   if (player.inCar) return '';
   const st = stopNearPlayer(); if (!st) return '';
   const b = busAtStop(st);
-  return b ? 'E : monter dans le bus ' + BUS_LINES[st.line].name + ' (' + BUS_FARE + ' $)' : 'Arrêt ' + st.name + ' · ' + BUS_LINES[st.line].name + ' · attends le bus';
+  return b ? 'E : monter dans le bus ' + BUS_LINES[st.line].name + ' (' + BUS_FARE + ' $)' : 'Arrêt ' + st.name + ' · ' + BUS_LINES[st.line].name + ' · E : plan de la ligne & horaires';
+}
+// stop board: the line's stops in order with the time to reach each one, the next bus, and a map of every line
+function busBoard(st) {
+  const Ln = BUS_LINES[st.line], stops = Object.keys(Ln.stops).sort((a, b) => a - b).map(q => Ln.stops[q]).filter(Boolean), n = stops.length, i0 = stops.indexOf(st), col = '#' + Ln.color.toString(16).padStart(6, '0');
+  const idxOf = s => stops.indexOf(s);
+  let wait = busAtStop(st) ? 0 : null; if (wait === null) for (const b of buses) if (b.line === st.line) { const nx = nextStopOf(b); if (!nx) continue; const d = (i0 - idxOf(nx) + n) % n; if (wait === null || d < wait) wait = d; }
+  togglePhone(false);
+  const ov = document.createElement('div'); ov.id = 'bigmap'; ov.innerHTML = '<div class="bmh"><b></b><button>✕</button></div><div class="busb"><canvas></canvas><ol></ol></div><p class="bmt"></p>';
+  document.body.append(ov); UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock();
+  ov.querySelector('b').innerHTML = '🚏 Arrêt <u>' + st.name + '</u> · <span style="color:' + col + '">' + Ln.name + '</span> · ticket ' + BUS_FARE + ' $';
+  ov.querySelector('.bmt').textContent = wait === null ? 'Aucun bus en service sur la ligne' : wait === 0 ? 'Le bus arrive — reste à l’arrêt' : 'Prochain bus dans ≈ ' + Math.max(1, Math.round(wait * 1.5)) + ' min (' + wait + ' arrêt' + (wait > 1 ? 's' : '') + ')';
+  const c = ov.querySelector('canvas'), S = Math.min(innerWidth - 360, innerHeight - 140, 640); c.width = c.height = Math.max(240, S); const k = c.width / (2 * HALF);
+  const g = c.getContext('2d'); g.drawImage(hud.mm, 0, 0, c.width, c.width); g.globalAlpha = 0.35; for (const o of BUS_LINES) { if (o === Ln) continue; } g.globalAlpha = 1; drawBusOnMap(g, k);
+  g.strokeStyle = col; g.lineWidth = 6; g.beginPath(); Ln.nodes.forEach(([a, b], q) => { const x = (lineX(a) + HALF) * k, z = (lineX(b) + HALF) * k; q ? g.lineTo(x, z) : g.moveTo(x, z); }); g.closePath(); g.stroke();
+  stops.forEach(s => { const x = (s.pos.x + HALF) * k, z = (s.pos.z + HALF) * k; g.fillStyle = s === st ? '#ffeb3b' : '#fff'; g.beginPath(); g.arc(x, z, s === st ? 7 : 4, 0, 7); g.fill(); g.font = 'bold 11px sans-serif'; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3; g.strokeText(s.name, x + 7, z + 4); g.fillText(s.name, x + 7, z + 4); });
+  g.fillStyle = '#fff'; g.beginPath(); g.arc((player.pos.x + HALF) * k, (player.pos.z + HALF) * k, 5, 0, 7); g.fill();
+  const ol = ov.querySelector('ol');
+  for (let q = 0; q < n; q++) { const s = stops[(i0 + q) % n], li = document.createElement('li'); li.innerHTML = (q === 0 ? '<b>● ' + s.name + ' (ici)</b>' : s.name + ' <i>+' + Math.round(q * 1.5) + ' min</i>'); if (q) li.onclick = () => { close(); gpsSet(s.pos.x, s.pos.z, '🚏 Arrêt ' + s.name); }; ol.append(li); }
+  const close = () => { ov.remove(); UI.open = false; };
+  ov.querySelector('button').onclick = close;
 }
 function drawBusOnMap(c, k) {
   for (const L of BUS_LINES) {
@@ -3335,12 +3656,13 @@ function seatPose(ch) {
   if (!ch.bones) { ch.bones = legBones(ch.o); ch.rest = {}; for (const [k, b] of Object.entries(ch.bones)) ch.rest[k] = b.rotation.x; }
   const b = ch.bones, P = SEATPOSE;
   for (const s of ['L', 'R']) {
-    if (b['UpperLeg' + s]) b['UpperLeg' + s].rotation.x = P.thigh;
-    if (b['Leg' + s]) b['Leg' + s].rotation.x = P.knee;
+    // measured on the rig (auto=seattest): +x on the thigh brings the knee forward, +x on the shin drops the foot under the knee
+    if (b['UpperLeg' + s]) b['UpperLeg' + s].rotation.x = ch.rest['UpperLeg' + s] + P.thigh;
+    if (b['Leg' + s]) b['Leg' + s].rotation.x = ch.rest['Leg' + s] + P.knee;
     if (b['Arm' + s]) b['Arm' + s].rotation.x = P.arm;
   }
 }
-const SEATPOSE = { thigh: -1.5, knee: 1.5, arm: -0.9 };
+const SEATPOSE = { thigh: 1.5, knee: 1.5, arm: -0.9 };
 function placeRider(ch, obj) {
   const h = obj.rotation.y, c = Math.cos(h), s = Math.sin(h);
   ch.o.position.set(obj.position.x + s * SEAT.z, obj.position.y + SEAT.y, obj.position.z + c * SEAT.z);
@@ -3803,7 +4125,8 @@ function buildRestoPlan() {
   labelAt('Vestiaire', 15, 0.3); iput(pickExisting(['I_RoomFurniture_01', 'I_RoomFurniture_02']), 15, 0.4, 0); iput('Bench_1_A', 15, 3.6, 0, 0, true, 0.7);
   labelAt('Toilettes', 15, 5.3); iput('I_Toilet_01', 13.3, 9.4, Math.PI); iput('I_Toilet_02', 16.8, 9.4, Math.PI);
   // counter facing the dining room
-  counter(8.75, 3.6, 4); roomNPC(8.75, 2.9, 'Idle_A-loop', 0); curRoom.counter = new THREE.Vector3(curRoom.ox + 8.75, 0, curRoom.oz + 4.9);
+  counter(8.75, 3.6, 4); { const cm = pickExisting(['CoffeeMachine_1_A', 'CoffeeMachine_1_C', 'CoffeeMachine_1_E']); if (cm) iput(cm, 7.4, 3.6, Math.PI, 1.0, false); }
+  roomNPC(8.75, 2.9, 'Idle_A-loop', 0); curRoom.counter = new THREE.Vector3(curRoom.ox + 8.75, 0, curRoom.oz + 4.9);
   const dishes = ['R_Dish_1_PlateReady', 'R_Dish_3_Ready', 'R_ChessBurger_Ready', 'R_Coffy_A', 'R_Cake_3_Ready'];
   curRoom.seats = [];
   for (const [tx, tz] of [[2.3, 7.4], [2.3, 11.6], [6.6, 7.6], [11.0, 7.6], [6.6, 11.4], [11.0, 11.4], [15.0, 12.6]]) {
@@ -3998,7 +4321,7 @@ function animLOD(dt) {
   const fx = camera.position.x, fz = camera.position.z, near = SHOT ? 1e9 : QS.anim, far2 = near * near, mid2 = (near * 0.45) ** 2;
   for (const m of mixers) {
     const o = m.getRoot(); if (!o.parent || o.visible === false && !o.userData.lodHidden) { continue; }
-    o.getWorldPosition(_lp); const d2 = (_lp.x - fx) ** 2 + (_lp.z - fz) ** 2;
+    if (o.parent === scene) _lp.copy(o.position); else o.getWorldPosition(_lp); const d2 = (_lp.x - fx) ** 2 + (_lp.z - fz) ** 2;
     if (d2 > far2) { m._acc = (m._acc || 0) + dt; continue; } // not animated far away
     if (d2 > mid2) { m._acc = (m._acc || 0) + dt; if ((m._acc) < 0.1) continue; m.update(m._acc); m._acc = 0; continue; } // 10 fps mid distance
     m.update(dt + (m._acc || 0)); m._acc = 0;
@@ -4469,7 +4792,7 @@ const APP = {
 function phoneRender() {
   const scr = $('phScreen'); if (!scr) return;
   const sb = $('phStatus'); const hh = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0');
-  sb.innerHTML = ''; sb.append(pel('span', '', hh), pel('span', '', (PH.battery < 20 ? '🪫 ' : '🔋 ') + Math.round(PH.battery) + ' %'));
+  sb.innerHTML = ''; sb.append(pel('span', '', hh), pel('span', 'phm', '💵 ' + M.money + ' $'), pel('span', '', (PH.battery < 20 ? '🪫 ' : '🔋 ') + Math.round(PH.battery) + ' %'));
   const body = $('phBody'); body.innerHTML = ''; PH.mapCanvas = null; PH.gpsBox = null;
   if (!PH.app) {
     const q = pel('input', 'psearch'); q.placeholder = '🔎 Rechercher une appli'; q.value = PH.q; body.append(q);
@@ -4507,7 +4830,7 @@ function updatePhone(dt) {
   updatePaid(); updateGates(dt); updateGpsStrip(); updateContracts(dt); updateTaxes(); updatePrison(); updateSirens(performance.now() / 1000); updateCallouts(dt, performance.now() / 1000);
   if (M.active !== PH.lastMis) { PH.lastMis = M.active; if (M.active) gpsOpen(); }
   if (J.task !== PH.lastTask) { PH.lastTask = J.task; if (J.task) phoneNotify(JOBS[J.job] ? JOBS[J.job].icon + ' ' + JOBS[J.job].label : '💼 Métier', J.task.goal || 'Nouvelle tâche'); }
-  phTick += dt; if (PH.open && phTick > (PH.app === 'carte' ? 0.1 : 0.5)) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); } }
+  phTick += dt; if (PH.open && phTick > (PH.app === 'carte' ? 0.1 : 0.5)) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) { sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); if (sb.children[1]) sb.children[1].textContent = '💵 ' + M.money + ' $'; } } }
 }
 function initPhone() {
   const p = $('phone'); if (!p) return;
@@ -4527,6 +4850,7 @@ function updateShadowCam() {
 }
 function frame() {
   const dt = Math.min(0.05, clock.getDelta()); const t = clock.elapsedTime;
+  if (window.PAUSED) { renderer.render(scene, camera); return; }
   updateSignals(dt);
   updateDayNight(dt);
   updateGame(dt);
@@ -4541,9 +4865,11 @@ function frame() {
 }
 function start() {
   setupPost();
+  try { renderer.compile(scene, camera); } catch (e) {} // every city shader compiled during loading, not on first sight
+  if (!SHOT) setTimeout(() => { const idle = window.requestIdleCallback || (f => setTimeout(f, 50)); idle(() => loadInteriorPack().then(() => { ipackDone = true; })); }, 6000);
   if (SHOT) {
     // advance simulation a little so cars/people are spread, then render once
-    const step = () => { try { updateRiders(); } catch (e) {}  updateSignals(0.05); updateDayNight(0.05); updateGame(0.05); updatePhone(0.05); updateCars(0.05); updatePeds(0.05); updateSmoke(0.05); updateFlyers(0.05, 0); for (const m of mixers) m.update(0.05); };
+    const step = () => { updateSignals(0.05); updateDayNight(0.05); updateGame(0.05); updatePhone(0.05); updateCars(0.05); updatePeds(0.05); updateSmoke(0.05); updateFlyers(0.05, 0); for (const m of mixers) m.update(0.05); try { updateRiders(); } catch (e) {} };
     for (let i = 0; i < 40; i++) step();
     if (SHOT === 'play') {
       window.startGame(false);
@@ -4569,6 +4895,7 @@ function start() {
         // wait for a bus to stop at a stop, put player there, board, ride
         let st = null; for (let i = 0; i < 600 && !st; i++) { step(); const b = buses.find(b => b.atStop); if (b) st = b.atStop; }
         player.pos.copy(st.pos); step();
+        if (location.search.includes('board')) { busBoard(st); window.DONE = 1; return; }
         const ok = busAction(); for (let i = 0; i < 60; i++) step();
         window.MSTATE = { boarded: ok && !!player.onBus, money: M.money, line: player.onBus && player.onBus.line, prompt: busPrompt() };
       } else if (auto === 'busstop') {
@@ -4632,6 +4959,32 @@ function start() {
       } else if (auto === 'svc') {
         const d = doors.find(d => d.service === (Q.get('k') || 'banque'));
         window.PENDING = (async () => { await enterDoor(d); const r = inside.room; player.pos.set(r.ox + 7.5, 0, r.oz + 8.5); player.heading = Math.PI; cam.pitch = 1.0; cam.dist = 17; cam.yaw = 0; for (let i = 0; i < 6; i++) step(); window.MSTATE = { prompt: lifePrompt(), objs: r.group.children.length }; console.log('INT ' + JSON.stringify(window.MSTATE)); })();
+      } else if (auto === 'colview') {
+        const p0 = player.pos, mat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.45, depthTest: false }), seen = new Set();
+        for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) for (const c of (cgrid.get((Math.floor(p0.x / CG) + i) + ',' + (Math.floor(p0.z / CG) + j)) || [])) { if (seen.has(c)) continue; seen.add(c); const b = new THREE.Mesh(new THREE.BoxGeometry(c.x1 - c.x0, 0.3, c.z1 - c.z0), mat); b.position.set((c.x0 + c.x1) / 2, SW + 1.2, (c.z0 + c.z1) / 2); b.renderOrder = 9; scene.add(b); }
+        setFreeCam(true); camera.position.set(p0.x, 150, p0.z + 1); controls.target.set(p0.x, 0, p0.z); controls.update(); mat.opacity = 0.35;
+      } else if (auto === 'yield') {
+        const c = cars.find(c => c.mode === 'lane' && c.seg.s.distanceTo(c.seg.e) > 30); c.t = 0.6; step();
+        const fx = -Math.sin(c.obj.rotation.y), fz = -Math.cos(c.obj.rotation.y), e = new THREE.Object3D(); e.position.set(c.obj.position.x - fx * 12, 0, c.obj.position.z - fz * 12); e.rotation.y = c.obj.rotation.y; scene.add(e); window.EMTEST = e;
+        const p0 = c.obj.position.clone(); for (let i = 0; i < 60; i++) { e.position.x += fx * 0.05; e.position.z += fz * 0.05; step(); }
+        const lat = (c.obj.position.x - p0.x) * -fz + (c.obj.position.z - p0.z) * fx, v = c.v;
+        // car-car: put a second car 6 m ahead on the same path, mode turn so lane-following can't see it
+        window.EMTEST = null; for (let i = 0; i < 40; i++) step();
+        c.mode = 'lane'; c.t = 0.2; step(); const gx = -Math.sin(c.obj.rotation.y), gz = -Math.cos(c.obj.rotation.y); { const fx = gx, fz = gz;
+        const o = cars.find(q => q !== c); o.mode = 'turn'; o.curve = new THREE.QuadraticBezierCurve3(c.obj.position.clone().addScaledVector(new THREE.Vector3(fx, 0, fz), 15), c.obj.position.clone().addScaledVector(new THREE.Vector3(fx, 0, fz), 15.01), c.obj.position.clone().addScaledVector(new THREE.Vector3(fx, 0, fz), 15.02)); o.ct = 0; o.v = 0; o.speed = 0;
+        for (let i = 0; i < 80; i++) step(); var gap = c.obj.position.distanceTo(o.obj.position); }
+        console.log('YIELD pull=' + c.pull.toFixed(2) + ' lat=' + lat.toFixed(2) + ' v=' + v.toFixed(2) + ' gapAfterBrake=' + gap.toFixed(2) + ' vc=' + c.v.toFixed(2));
+      } else if (auto === 'invui') {
+        for (const id of ['eau', 'pain', 'fromage', 'tomate', 'medicament', 'pioche', 'cle', 'savon', 'dessert', 'jerrycan', 'F:I_Sofa_01', 'soda']) give(id, 1 + (id.length % 3));
+        window.PENDING = openInventory().then(() => { const c = document.querySelector('#inv .invc'); c && c.click(); });
+      } else if (auto === 'phone2') { togglePhone(true);
+      } else if (auto === 'prof') {
+        const P = {}, tm = (k, f) => { const a = performance.now(); f(); const d = performance.now() - a; const e = P[k] || (P[k] = { s: 0, m: 0 }); e.s += d; e.m = Math.max(e.m, d); };
+        player.pos.set(blockC(6), SW, blockC(6) + 21); const N = 120;
+        for (let i = 0; i < N; i++) { const dt = 0.033; tm('signals', () => updateSignals(dt)); tm('daynight', () => updateDayNight(dt)); tm('game', () => updateGame(dt)); tm('phone', () => updatePhone(dt)); tm('cars', () => updateCars(dt)); tm('peds', () => updatePeds(dt)); tm('smoke', () => updateSmoke(dt)); tm('flyers', () => updateFlyers(dt, i * dt)); tm('anim', () => animLOD(dt)); tm('riders', () => updateRiders()); tm('wheels', () => updateWheels(dt)); tm('actors', () => updateActors(dt)); tm('pedlife', () => updatePedLife(dt)); tm('shcam', () => updateShadowCam()); }
+        console.log('PROF ' + Object.entries(P).map(([k, e]) => k + '=' + (e.s / N).toFixed(2) + '/' + e.m.toFixed(1)).join(' ') + ' cars=' + cars.length + ' peds=' + peds.length + ' mixers=' + mixers.length + ' calls=' + renderer.info.render.calls);
+      } else if (auto === 'lotview') {
+        const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
         const lot = gates[0].lot; const c = parkedPlayerCars.find(c => !c.obj.userData.fire) || parkedPlayerCars[0];
         c.obj.position.set(lot.x - 30, SW + 0.24, lot.z - 10); c.obj.rotation.y = -Math.PI / 2; player.pos.copy(c.obj.position); player.pos.z += 2; step(); toggleCar(); M.money = 50;
@@ -4651,6 +5004,24 @@ function start() {
       } else if (auto === 'phone') {
         game.on = true; M.money = 120; togglePhone(true); const a = Q.get('app'); if (a) phoneGo(a); if (a === 'internet') { PH.web = 'banque'; phoneRender(); }
         window.MSTATE = { apps: document.querySelectorAll('.papp').length, rows: document.querySelectorAll('#phBody .pr').length };
+      } else if (auto === 'seattest') {
+        const ch = makeChar(Object.keys(skinned)[0]); ch.o.position.set(0, 0, 0); ch.o.rotation.y = 0; scene.add(ch.o); ch.o.updateMatrixWorld(true);
+        const bn = {}; ch.o.traverse(n => { if (n.isBone) bn[n.name.replace(/[^A-Za-z]/g, '')] = n; });
+        console.log('BONES ' + Object.keys(bn).join(','));
+        const B = legBones(ch.o), rest = {}; for (const k in B) rest[k] = B[k].rotation.clone();
+        const foot = Object.keys(bn).find(k => /^FootL$/.test(k)) ;
+        const wp = n => n.getWorldPosition(new THREE.Vector3());
+        for (const ax of ['x', 'z']) for (const ts of [-1, 1]) for (const ks of [-1, 1]) {
+          for (const k in B) B[k].rotation.copy(rest[k]);
+          B.UpperLegL.rotation[ax] += ts * 1.5; B.LegL.rotation[ax] += ks * 1.5; ch.o.updateMatrixWorld(true);
+          const h = wp(B.UpperLegL), kn = wp(B.LegL), f = bn[foot] ? wp(bn[foot]) : null;
+          console.log('SEAT ' + ax + ' t' + ts + ' k' + ks + ' knee dz=' + (kn.z - h.z).toFixed(2) + ' dy=' + (kn.y - h.y).toFixed(2) + (f ? ' foot dz=' + (f.z - h.z).toFixed(2) + ' dy=' + (f.y - h.y).toFixed(2) : ''));
+        }
+        for (const k in B) B[k].rotation.copy(rest[k]);
+        const p0 = player.pos; const cp = makeObject(pickExisting(['Chair_1_A', 'R_Chair_1_A'])); cp.position.set(p0.x + 3, p0.y, p0.z); scene.add(cp);
+        scene.remove(ch.o); for (const [dz, r] of [[-1.2, 0], [1.2, Math.PI / 2]]) { const c2 = makeChar(Object.keys(skinned)[1] || Object.keys(skinned)[0]); c2.o.position.set(p0.x + 3, p0.y, p0.z + dz); c2.o.rotation.y = r; scene.add(c2.o); play(c2, 'Idle_A-loop'); sitters.push(c2); }
+        setFreeCam(true); camera.position.set(p0.x + 7, p0.y + 0.8, p0.z); controls.target.set(p0.x + 3, p0.y + 0.6, p0.z); controls.update();
+        const hd = Object.keys(bn).find(k => /Head/.test(k)); console.log('FWD nose? head z ' + wp(bn[hd]).z.toFixed(2));
       } else if (auto === 'wheels') {
         const all = [...new Set([...CARS, ...Object.keys(proto).filter(n => /^(veh_|C_|Bus|Taxi|Police|Ambulance|SportCar|PickUp|Van)/.test(n))])];
         const res = all.map(n => [n, proto[n].parts.filter(p => p.wheel).length]); console.log('WHEELS ' + JSON.stringify(res.filter(r => r[1] === 0).map(r => r[0])) + ' withWheels=' + res.filter(r => r[1] > 0).length + ' total=' + res.length);
@@ -4785,6 +5156,8 @@ function start() {
           const cards = document.querySelectorAll('.dcar').length; const b = document.querySelectorAll('.dcar button')[0]; b.click(); b.click(); await new Promise(r => setTimeout(r, 1500));
           const car = L.owned[L.owned.length - 1]; console.log('VMP ' + JSON.stringify({ cat: VCAT.length, cards, bought: car && car.name, electric: car && car.electric, wheels: car && (car.obj.userData.wheels || []).length, size: car && new THREE.Box3().setFromObject(car.obj).getSize(new THREE.Vector3()).toArray().map(v => +v.toFixed(1)) }));
           DSTATE.cat = 'race'; await dealerUI2(cd); })().catch(e => console.log('ERR ' + e.stack));
+      } else if (auto === 'gasview') {
+        const s = doors.find(d => d.service === 'station'); setFreeCam(true); camera.position.set(s.x + 20, 30, s.z + 55); controls.target.set(s.x - 9, 0, s.z + 5); controls.update(); console.log('GAS ' + ['GS_Pump_Modern_Double', 'T_anvil', 'CR_crate_onions', 'BB_billboard'].map(n => n + ':' + !!proto[n]).join(' '));
       } else if (auto === 'view') {
         const bx = blockC(+Q.get('i')), bz = blockC(+Q.get('j')); const o = (Q.get('o') || '0,30,40').split(',').map(Number); const tg = (Q.get('t') || '0,0,0').split(',').map(Number);
         setFreeCam(true); camera.position.set(bx + o[0], o[1], bz + o[2]); controls.target.set(bx + tg[0], tg[1], bz + tg[2]); controls.update();

@@ -18,6 +18,23 @@
   #start p{margin:0 0 14px;color:#47506a}
   #start table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px}
   #start td{padding:4px 0;color:#1d2740}#start td:first-child{font-weight:700;width:48%}
+  #start .card{max-height:92vh;overflow:auto;box-sizing:border-box}
+  body:not(.dev) #top{display:none}
+  #start .scr{display:none}#start .scr.on{display:block}
+  #start .card.wide{max-width:620px}
+  #start .col{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  #start .btn.big{font-size:17px;padding:14px;background:#eef2fa;text-align:left}#start .btn.big:hover{background:#dfe7f7}
+  #start .btn.pri,#start .btn.go{background:#2f6fe4;color:#fff}
+  #start input#charName{width:100%;box-sizing:border-box;padding:10px;border:2px solid #cbd5e1;border-radius:10px;font:inherit;margin:4px 0 10px;touch-action:auto;-webkit-user-select:text;user-select:text}
+  #charGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px;max-height:46vh;overflow:auto;margin-bottom:12px}
+  #charGrid div{border:3px solid #e3e8f2;border-radius:12px;cursor:pointer;background:#f4f7fc}#charGrid div.sel{border-color:#2f6fe4;background:#e3ecff}#charGrid img{width:100%;display:block}
+  #start .tabs{display:flex;gap:6px;margin-bottom:10px}#start .tabs .btn.on{background:#1d2740;color:#fff}
+  #keyList{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:8px 0;font-size:14px;align-items:center}
+  #keyList button{min-width:110px;padding:7px;border-radius:8px;border:2px solid #cbd5e1;background:#fff;font:inherit;font-weight:700;cursor:pointer}#keyList button.wait{border-color:#2f6fe4;background:#e3ecff}
+  #start .warn{color:#a15c00;font-size:13px}#start details{margin-top:10px}#start label{display:flex;gap:10px;align-items:center}
+  #pause{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;background:rgba(8,12,24,.6)}#pause.on{display:flex}
+  #pause .card{background:#fff;border-radius:18px;padding:22px;min-width:280px;display:flex;flex-direction:column;gap:10px}#pause h2{margin:0 0 4px;color:#1d2740}
+  #pause .btn{font-size:16px;padding:12px;text-align:left}
   #start .row{display:flex;gap:10px;flex-wrap:wrap}
   #start .go{background:#ff5a3c;color:#fff;font-size:16px;padding:12px 20px}
   #hud{display:none}
@@ -31,7 +48,10 @@
   #mission b{font-size:16px}
   #job{position:fixed;left:12px;top:150px;background:rgba(120,30,20,.85);color:#fff;border-radius:12px;padding:10px 14px;max-width:340px;display:none;flex-direction:column;gap:3px;font-size:14px}
   #job b{font-size:16px}
-  #needs{position:fixed;right:14px;top:290px;width:170px;background:rgba(20,26,40,.75);border-radius:12px;padding:8px 10px;color:#fff;font-size:12px;display:flex;flex-direction:column;gap:4px}
+  #money{display:none!important}
+  #needs .cash{margin:0 0 2px;display:flex;align-items:baseline;justify-content:space-between;gap:6px}#needs .cash span{font-size:20px;font-weight:800;color:#3cff8a}#needs .cash small{color:#b9c6e4;font-size:12px}
+  body.phon #needs{opacity:0;pointer-events:none}#phStatus .phm{color:#7cff9e;font-weight:800}
+  #needs{transition:opacity .2s;position:fixed;right:14px;top:244px;width:190px;background:rgba(20,26,40,.75);border-radius:12px;padding:8px 10px;color:#fff;font-size:12px;display:flex;flex-direction:column;gap:4px}
   #needs div{display:flex;align-items:center;gap:6px}#needs i{flex:1;height:8px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden}#needs b{display:block;height:100%}
   #needs em{font-style:normal}
   #menu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,calc(100vw - 24px));max-height:80vh;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none;flex-direction:column;padding:16px;z-index:40;color:#1d2740}
@@ -115,8 +135,26 @@
   #accForm{display:flex;gap:6px;flex-wrap:wrap}#accForm input{flex:1;min-width:130px;padding:8px;border:2px solid #cbd5e1;border-radius:10px;font:inherit;touch-action:auto;-webkit-user-select:text;user-select:text}
   #account .btn{padding:8px 12px;font-size:13px}
   #qualRow{margin:6px 0;font-size:13px}#qualRow select{font:inherit;padding:4px 8px;border-radius:8px;border:2px solid #cbd5e1}
-  #money{top:auto!important;bottom:84px!important;right:18px!important}
+  #inv{position:fixed;inset:0;z-index:70;background:rgba(8,12,24,.72);display:flex;align-items:center;justify-content:center;font-family:inherit}
+  #inv .invw{width:min(860px,96vw);max-height:90vh;display:grid;grid-template-columns:1fr 250px;grid-template-rows:auto 1fr auto;gap:12px;background:#151c2e;border:2px solid #2f3b5c;border-radius:18px;padding:16px;color:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  #inv .invh{grid-column:1/3;display:flex;align-items:center;gap:12px}#inv .invh b{font-size:20px}#inv .invh span{color:#9fb3d9;margin-left:auto}
+  #inv .invx{background:#2a3553;border:0;color:#fff;border-radius:10px;width:36px;height:36px;font-size:18px;cursor:pointer}
+  #inv .invg{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;overflow:auto;align-content:start;padding:2px}
+  #inv .invc{position:relative;background:#1f2942;border:2px solid #2f3b5c;border-radius:14px;padding:6px;text-align:center;cursor:pointer;transition:.12s}
+  #inv .invc:hover{border-color:#5b7bd5;transform:translateY(-2px)}#inv .invc.sel{border-color:#ffd54f;background:#27324f}#inv .invc.on{box-shadow:0 0 0 2px #66bb6a inset}
+  #inv .invc img{width:84px;height:84px;object-fit:contain;display:block;margin:0 auto}#inv .invc i{display:block;font-size:46px;line-height:84px;font-style:normal}
+  #inv .invc s{position:absolute;top:6px;right:8px;text-decoration:none;background:#ffd54f;color:#222;border-radius:9px;padding:0 6px;font-weight:700;font-size:12px}
+  #inv .invc u{display:block;text-decoration:none;font-size:12px;line-height:1.2;margin-top:4px;color:#dfe7ff}
+  #inv .inva{background:#1b2338;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;overflow:auto}#inv .inva:empty:before{content:'Touche un objet pour voir les actions';color:#8193b8}
+  #inv .inva b{font-size:16px}#inv .inva small{color:#9fb3d9;min-height:16px}
+  #inv .inva button,#inv .invr{background:#2f6fe4;border:0;color:#fff;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;text-align:left;font-size:14px}
+  #inv .inva button.dis{background:#3a4260;color:#a3abc4}#inv .invf{grid-column:1/3}#inv .invr{background:#2a3553}
+  #inv .inve{color:#8193b8;grid-column:1/-1}
+  @media (max-width:640px){#inv .invw{grid-template-columns:1fr;grid-template-rows:auto 1fr auto auto}#inv .invh,#inv .invf{grid-column:1}}
   #bigmap{position:fixed;inset:0;z-index:60;background:rgba(10,15,30,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
+  #bigmap .busb{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+  #bigmap ol{background:#1b2236;border-radius:12px;padding:12px 12px 12px 34px;margin:0;max-height:70vh;overflow:auto;min-width:220px;font-size:15px;line-height:1.9}
+  #bigmap ol li{cursor:pointer}#bigmap ol li i{color:#90caf9;font-style:normal;float:right;margin-left:12px}#bigmap ol li:hover{color:#ffd54f}
   #bigmap canvas{border:3px solid #ffd54f;border-radius:12px;cursor:crosshair;touch-action:none}
   .bmh{display:flex;gap:12px;align-items:center;margin-bottom:8px}.bmh button{font-size:18px;border-radius:10px;border:0;padding:4px 10px}
   .dtabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}.dtabs button{padding:5px 10px;border-radius:10px;border:2px solid #cbd5e1;background:#fff;font:inherit;font-size:12px}.dtabs .on{background:#ffd54f;border-color:#1d2740}
@@ -126,10 +164,36 @@
 <body>
 <div id="status">Chargement…</div>
 <div id="start">
-  <div class="card">
+  <div class="card scr" id="scrAcc">
     <h1>Cartoon City</h1>
-    <p>Explore la ville à pied, monte dans n'importe quelle voiture et roule. Les colonnes de lumière sont des missions : contre la montre, taxi, collecte de pièces.</p>
-    <table>
+    <p>Crée ton compte pour sauvegarder ta partie en ligne, ou joue sans compte (sauvegarde sur cet appareil).</p>
+    <div id="account"><b>☁️ Compte joueur</b> <span id="accStatus">…</span>
+      <div id="accForm"><input id="accEmail" type="email" placeholder="e-mail" autocomplete="email"><input id="accPw" type="password" placeholder="mot de passe" autocomplete="current-password"><button id="accIn" class="btn">Connexion</button><button id="accUp" class="btn">Créer un compte</button></div>
+      <button id="accOut" class="btn" style="display:none">Déconnexion</button></div>
+    <div class="row"><button class="btn pri" id="accNext">Continuer ➜</button></div>
+  </div>
+  <div class="card scr" id="scrChar">
+    <h1>Ton personnage</h1>
+    <input id="charName" maxlength="18" placeholder="Prénom du personnage">
+    <div id="charGrid"></div>
+    <div class="row"><button class="btn" data-go="scrAcc">◀ Retour</button><button class="btn pri" id="charOk">Valider ➜</button></div>
+  </div>
+  <div class="card scr" id="scrMenu">
+    <h1>Cartoon City</h1><p id="menuWho"></p>
+    <div class="col">
+      <button class="btn go big" onclick="startGame(false)">▶ Jouer solo</button>
+      <button class="btn big" id="btnOnline">🌐 Jouer en ligne</button>
+      <button class="btn big" data-go="scrSet">⚙️ Paramètres</button>
+      <button class="btn big" data-go="scrChar">🧍 Personnage</button>
+      <button class="btn big" onclick="startGame(true)">🎥 Visiter (caméra libre)</button>
+      <button class="btn big" id="btnQuit">⏻ Quitter</button>
+    </div>
+  </div>
+  <div class="card scr wide" id="scrSet">
+    <h1>Paramètres</h1>
+    <div class="tabs"><button class="btn on" data-tab="tKeys">⌨️ Touches</button><button class="btn" data-tab="tGfx">🖥️ Graphismes</button><button class="btn" data-tab="tSnd">🔊 Son</button></div>
+    <div class="tab" id="tKeys"><p>Clique sur une touche puis appuie sur la nouvelle touche.</p><div id="keyList"></div><button class="btn" id="keyReset">Touches par défaut</button>
+      <details><summary>Toutes les commandes</summary><table>
       <tr><td><img class="kk" src="ui/keys/z.png"><img class="kk" src="ui/keys/q.png"><img class="kk" src="ui/keys/s.png"><img class="kk" src="ui/keys/d.png"> / <img class="kk" src="ui/keys/w.png"><img class="kk" src="ui/keys/a.png"><img class="kk" src="ui/keys/s.png"><img class="kk" src="ui/keys/d.png"></td><td>se déplacer, conduire</td></tr>
       <tr><td><img class="kk" src="ui/keys/shift.png"></td><td>courir / turbo</td></tr>
       <tr><td><img class="kk" src="ui/keys/space_md.png"></td><td>sauter / freiner</td></tr>
@@ -142,18 +206,13 @@
       <tr><td><img class="kk" src="ui/keys/t.png"></td><td>téléphone</td></tr>
       <tr><td><img class="kk" src="ui/keys/escape.png"></td><td>fermer un menu</td></tr>
       <tr><td>Mobile</td><td>gauche : joystick · droite : caméra</td></tr>
-    </table>
-    <p class="mobonly">📱 Joystick à gauche (glisse ton pouce) · glisse à droite pour tourner la caméra · pince pour zoomer · boutons à droite : E (action / voiture), courir, sauter-freiner, sac, caméra · téléphone en haut à gauche.</p>
-    <div id="account"><b>☁️ Compte joueur</b> <span id="accStatus">…</span>
-      <div id="accForm"><input id="accEmail" type="email" placeholder="e-mail" autocomplete="email"><input id="accPw" type="password" placeholder="mot de passe" autocomplete="current-password"><button id="accIn" class="btn">Connexion</button><button id="accUp" class="btn">Créer un compte</button></div>
-      <button id="accOut" class="btn" style="display:none">Déconnexion</button></div>
-    <div id="qualRow">⚙️ Qualité graphique : <select id="qualSel" onchange="setQuality(this.value)"><option value="auto">Auto (s'adapte)</option><option value="bas">Bas (téléphones, vieux PC)</option><option value="moyen">Moyen</option><option value="haut">Haut (ombres fines, occlusion)</option></select></div>
-    <div class="row">
-      <button class="btn go" onclick="startGame(false)">Jouer</button>
-      <button class="btn" onclick="startGame(true)">Visiter (caméra libre)</button>
-    </div>
+    </table></details></div>
+    <div class="tab" id="tGfx" style="display:none"><div id="qualRow">Qualité graphique : <select id="qualSel" onchange="setQuality(this.value)"><option value="auto">Auto (s'adapte)</option><option value="bas">Bas (téléphones, vieux PC)</option><option value="moyen">Moyen</option><option value="haut">Haut (ombres fines, occlusion)</option></select></div></div>
+    <div class="tab" id="tSnd" style="display:none"><label>Volume général <input type="range" id="volAll" min="0" max="100" value="80"></label><p class="warn">Aucun son n’est fourni dans tes packs : le réglage est enregistré et s’appliquera dès que des sons seront ajoutés.</p></div>
+    <div class="row"><button class="btn pri" id="setBack">◀ Retour</button></div>
   </div>
 </div>
+<div id="pause"><div class="card"><h2>⏸ Pause</h2><button class="btn" id="pResume">▶ Reprendre</button><button class="btn" id="pSet">⚙️ Paramètres</button><button class="btn" id="pSave">💾 Sauvegarder</button><button class="btn" id="pMenu">🏠 Menu principal (sauvegarde)</button></div></div>
 <div id="hud">
   <div id="top">
     <button class="btn" id="modeBtn" onclick="setFreeCam(!document.getElementById('modeBtn').textContent.startsWith('Reprendre'))">Caméra libre (C)</button>
