@@ -221,6 +221,7 @@ async function loadExtras() {
       const g = new THREE.Group(); const x0 = cx(m);
       for (const o of list) { const clone = o.clone(); clone.applyMatrix4(cs.matrixWorld); clone.position.x -= x0 * cs.scale.x; g.add(clone); }
       const w = normalize(g, 0.0088, 0.24, true);
+      if (!/^(Femintine|Mascuilo)$/.test(m.name)) continue; // the other Carss cars need Models.png, missing from the packs
       proto['C_' + m.name] = { parts: fbxToParts(w, 'x_car3'), bb: new THREE.Box3().setFromObject(w) };
     }
   }
@@ -330,7 +331,47 @@ function propCollider(name, x, z, rot, sc) {
   propCols.push([x + f.minx * sc, z + f.minz * sc, x + f.maxx * sc, z + f.maxz * sc]);
 }
 // rotated footprint helpers
+
+// ---- SAFETY: no building may stand on its side. Checked once per model before it is placed:
+// windows (glass) must face sideways; if most glass faces up/down the model is lying -> stood up automatically.
+const UPRIGHT = new Map(), UPFIX = [], UPSTAT = [];
+const isBuildingModel = (n) => /^(Building|House|Shop|Store|Tower|Office|Hotel|Skyscraper|Market|Mall|Hospital|Police|Fire|School|Bank|Garage|Gas|Station)/i.test(n) && !/Sign|Roof|Door|Window/.test(n);
+function glassAxes(parts) {
+  const acc = { y: 0, x: 0, z: 0 }; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  for (const p of parts) {
+    if (!/window|glass/i.test(p.mat.name || '')) continue;
+    const pos = p.geo.attributes.position, idx = p.geo.index, cnt = idx ? idx.count : pos.count;
+    for (let i = 0; i < cnt; i += 3) {
+      const i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1, i2 = idx ? idx.getX(i + 2) : i + 2;
+      a.fromBufferAttribute(pos, i0).applyMatrix4(p.mtx); b.fromBufferAttribute(pos, i1).applyMatrix4(p.mtx); c.fromBufferAttribute(pos, i2).applyMatrix4(p.mtx);
+      n.crossVectors(b.sub(a), c.sub(a)); const ar = n.length() / 2; if (ar < 1e-6) continue; n.normalize();
+      const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+      if (ay >= ax && ay >= az) acc.y += ar; else if (ax >= az) acc.x += ar; else acc.z += ar;
+    }
+  }
+  return acc;
+}
+function ensureUpright(name) {
+  if (UPRIGHT.has(name)) return; UPRIGHT.set(name, true);
+  const P = proto[name]; if (!P || !isBuildingModel(name)) return;
+  const g = glassAxes(P.parts); const side = g.x + g.z;
+  const sz = P.bb.getSize(new THREE.Vector3()); UPSTAT.push([name, +(g.y / Math.max(0.01, side)).toFixed(2), +sz.x.toFixed(1), +sz.y.toFixed(1), +sz.z.toFixed(1)]);
+  if (g.y <= side * 1.2 || g.y < 0.5) return; // windows already on the walls (glass roofs such as Building_16_2 stay as they are)
+  // lying: the window normals point up -> rotate so they become horizontal; try the 4 quarter turns, keep the best
+  let best = null, bestSide = -1;
+  for (const R of [new THREE.Matrix4().makeRotationX(Math.PI / 2), new THREE.Matrix4().makeRotationX(-Math.PI / 2), new THREE.Matrix4().makeRotationZ(Math.PI / 2), new THREE.Matrix4().makeRotationZ(-Math.PI / 2)]) {
+    const parts = P.parts.map(p => ({ ...p, mtx: R.clone().multiply(p.mtx) })); const a = glassAxes(parts);
+    // prefer the orientation whose glass is sideways and whose lowest point sits on the ground (no glass facing down)
+    if (a.x + a.z > bestSide) { bestSide = a.x + a.z; best = parts; }
+  }
+  const box = new THREE.Box3(), v = new THREE.Vector3();
+  for (const p of best) { p.geo.computeBoundingBox(); const b = p.geo.boundingBox; for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) box.expandByPoint(v.set(x, y, z).applyMatrix4(p.mtx)); }
+  const T = new THREE.Matrix4().makeTranslation(-(box.min.x + box.max.x) / 2 + (P.bb.min.x + P.bb.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2 + (P.bb.min.z + P.bb.max.z) / 2);
+  for (const p of best) p.mtx = T.clone().multiply(p.mtx);
+  box.applyMatrix4(T); P.parts = best; P.bb = box; UPFIX.push(name);
+}
 function footprint(name, rot) {
+  ensureUpright(name);
   const bb = proto[name].bb;
   const c = Math.round(Math.cos(rot)), s = Math.round(Math.sin(rot));
   const xs = [], zs = [];
@@ -1087,6 +1128,8 @@ async function main() {
   window.LEFT = queue.concat(solo); window.REPORT = { left: queue.concat(solo).length, buildingsTotal: BUILD.all.length, buildingsPlaced: placed.length, unique: used.size, leftInQueue: queue.length + solo.length, overlaps };
   console.log('REPORT ' + JSON.stringify(window.REPORT));
   assignServices(); buildFarm(); buildQuarry();
+  for (const s of UPSTAT.filter(s => s[1] > 0.3)) console.log('UPS ' + JSON.stringify(s));
+  if (Q.get('near')) { const [nx, nz] = Q.get('near').split(',').map(Number); const seen = {}; for (const [n, x, y, z] of PUTLOG) { if (Math.hypot(x - nx, z - nz) < 30 && proto[n]) { const s = proto[n].bb.getSize(new THREE.Vector3()); if (s.y > 2 && !seen[n]) { seen[n] = 1; console.log('NEAR ' + n + ' ' + [x, y, z].map(v => v.toFixed(1)) + ' size ' + [s.x, s.y, s.z].map(v => v.toFixed(1))); } } } }
   clearDoorways(); console.log('DOORWAYS cleared ' + DOORWAY_CLEARED);
   const draws = buildInstances();
   buildColliders(); initSignals(); initDoorMarks();
@@ -1096,7 +1139,7 @@ async function main() {
   if (Q.get('hour')) GT.min = +Q.get('hour') * 60;
   spawnPeds(+(Q.get('peds') || (MOBILE ? 1 : 2)));
   say('');
-  console.log('instanced draws', draws, 'buckets', buckets.size, 'FIXED', FIXED.length, 'parked', parkedSpots.length, 'stops', busStops.length, 'rows', JSON.stringify(ROWSTAT), 'roof', JSON.stringify(ROOFSTAT), 'lots', lotsParking.length);
+  console.log('instanced draws', draws, 'buckets', buckets.size, 'FIXED', FIXED.length, 'parked', parkedSpots.length, 'stops', busStops.length, 'rows', JSON.stringify(ROWSTAT), 'roof', JSON.stringify(ROOFSTAT), 'stoodUp', JSON.stringify(UPFIX), 'lots', lotsParking.length);
   initDayNight();
   initPlayer(); initHud(); initMissions(); initPaidZone(); initPhone(); initTouchUI(); if (!SHOT) loadGame(); accountInit();
   if (!SHOT) document.getElementById('start').style.display = 'flex';
@@ -1198,7 +1241,8 @@ renderer.domElement.addEventListener('mousedown', () => {
   dragging = true;
   try { renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock(); } catch (e) {}
 });
-addEventListener('mouseup', () => { dragging = false; });
+addEventListener('mouseup', () => { dragging = false; if (document.pointerLockElement) document.exitPointerLock(); });
+addEventListener('keydown', (e) => { if (e.code === 'AltLeft' || e.code === 'AltRight') { e.preventDefault(); if (document.pointerLockElement) document.exitPointerLock(); banner('🖱️ Curseur visible', 800); } });
 addEventListener('mousemove', (e) => {
   if (!game.on || game.freeCam) return;
   if (document.pointerLockElement === renderer.domElement || dragging) {
@@ -1978,7 +2022,7 @@ function updateDayNight(dt) {
   renderer.toneMappingExposure = indoor ? 1.05 : k.exp;
   const night = indoor ? 0 : THREE.MathUtils.clamp((0.75 - k.hemi) / 0.5, 0, 1);
   nightU.value = THREE.MathUtils.clamp((0.95 - k.hemi) / 0.55, 0, 1);
-  scene.backgroundIntensity = indoor ? 1 : Math.max(0.05, Math.min(1, (k.hemi - 0.2) / 0.95));
+  scene.backgroundIntensity = Math.max(0.05, Math.min(1, (k.hemi - 0.2) / 0.95));
   scene.environmentIntensity = 0.25 + 0.75 * (1 - night);
   if (scene.fog) scene.fog.color.copy(k.fog);
   if (stars) { stars.material.opacity = night * 0.9; stars.position.copy(camera.position); }
@@ -2021,7 +2065,7 @@ function partition(axis, fixed, a, b, gaps = [], wall) {
   for (let t = a; t < b; t++) {
     if (gaps.includes(t)) { if (proto.I_Door_02 && chance(0.6)) { const dx = axis === 'x' ? t * Tt + 0.25 : fixed, dz = axis === 'x' ? fixed : t * Tt + 0.25; iput('I_Door_02', dx, dz, axis === 'x' ? Math.PI / 2 : 0, 0, false); } continue; }
     const cx = axis === 'x' ? t * Tt + Tt / 2 : fixed, cz = axis === 'x' ? fixed : t * Tt + Tt / 2;
-    const o = makeObject(w); o.position.set(r.ox + cx, 0, r.oz + cz); o.rotation.y = axis === 'x' ? 0 : Math.PI / 2; o.scale.y = 0.55; r.group.add(o);
+    const o = makeObject(w); o.position.set(r.ox + cx, 0, r.oz + cz); o.rotation.y = axis === 'x' ? 0 : Math.PI / 2; o.scale.y = 0.85; r.group.add(o);
     r.cols.push(axis === 'x' ? [r.ox + t * Tt, r.oz + fixed - 0.12, r.ox + (t + 1) * Tt, r.oz + fixed + 0.12] : [r.ox + fixed - 0.12, r.oz + t * Tt, r.ox + fixed + 0.12, r.oz + (t + 1) * Tt]);
   }
 }
@@ -2261,7 +2305,9 @@ function assignServices() {
   for (const d of doors) if (d.service === 'cafe' || (d.type === 'resto' && !d.service)) buildTerrace(d);
   for (const d of doors) {
     const s = d.service ? SERVICES[d.service] : null;
-    if (s) { const sp = textPlaque(s.label, s.color, 2.8); sp.position.set(d.x - d.out[0] * 0.62, SW + (d.service === 'station' ? 6 : 3.9), d.z - d.out[1] * 0.62); sp.rotation.y = Math.atan2(d.out[0], d.out[1]);
+    if (s) { const px = d.x + d.out[0] * 1.2 + d.out[1] * 2.0, pz = d.z + d.out[1] * 1.2 - d.out[0] * 2.0;
+      if (proto.SignHolder_3_A) put('SignHolder_3_A', px, SW, pz, Math.atan2(d.out[0], d.out[1]));
+      const sp = textPlaque(s.label, s.color, 1.6); sp.position.set(px + d.out[0] * 0.12, SW + 2.25, pz + d.out[1] * 0.12); sp.rotation.y = Math.atan2(d.out[0], d.out[1]);
       if (d.service === 'station' && proto.K_Fuel_A_Barrels) put('K_Fuel_A_Barrels', d.x + d.out[0] * 1.2 + d.out[1] * 2.5, SW, d.z + d.out[1] * 1.2 + d.out[0] * 2.5, 0, 1.4);
       if (d.service === 'police') { const o = proto.C_Police ? makeObject('C_Police') : proto.PoliceCar ? makeObject('PoliceCar') : null; if (o) { o.position.set(d.x + d.out[0] * 2.9 + d.out[1] * 4, SW + 0.24, d.z + d.out[1] * 2.9 + d.out[0] * 4); o.rotation.y = Math.atan2(d.out[1], -d.out[0]); scene.add(o); parkedPlayerCars.push({ obj: o, speed: 0 }); } }
     } else {
@@ -2402,7 +2448,8 @@ function openChest() {
 function lifeAction() {
   if (UI.open) return true;
   if (L.placing) { confirmPlace(); return true; }
-  if (L.sitting) { L.sitting = null; return true; }
+  if (L.sitting) { L.sitting = null; standPose(player.ch); closeMenu(); banner('Debout', 600); return true; }
+  if (!inside && !player.inCar) { const h = nearestSpot('hospital'); if (h && Math.hypot(h.pos.x - player.pos.x, h.pos.z - player.pos.z) < 7) { const hd = hospitalDoor(); if (hd) { enterDoor(hd); return true; } } }
   if (L.working) return true;
   if (player.inCar && gateAction()) return true;
   if (inside && inside.door.type === 'lobby' && lobbyAction()) return true;
@@ -2641,7 +2688,7 @@ async function loadFbxSet(set) {
 let curRoom = null;         // room being built
 function iput(name, x, z, rot = 0, y = 0, col = true, sc = 1) {
   if (!proto[name]) return null;
-  const o = makeObject(name);
+  const o = makeObject(name); if (/^K_/.test(name)) sc *= 0.45;
   o.position.set(curRoom.ox + x, y, curRoom.oz + z); o.rotation.y = rot; o.scale.setScalar(sc);
   curRoom.group.add(o);
   if (col) {
@@ -2824,7 +2871,7 @@ async function buildInterior(door) {
   let extra = [];
   if (door.type === 'epicerie') extra = await loadFbxSet('food');
   if (door.type === 'jouets') extra = await loadFbxSet('toys');
-  if (!interiors.length) { const g = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a9a7a, roughness: 1 })); g.position.set(6250, -0.2, 900); g.receiveShadow = true; scene.add(g); }
+  if (!interiors.length) { const g = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a9a7a, roughness: 1 })); g.position.set(6250, -0.2, 900); g.visible = false; scene.add(g); }
   const k = interiors.length;
   curRoom = { door, group: new THREE.Group(), cols: [], npcs: [], ox: 6000 + (k % 12) * 40, oz: 600 + Math.floor(k / 12) * 40 };
   scene.add(curRoom.group);
@@ -2848,8 +2895,10 @@ async function enterDoor(door) {
     banner(door.type === 'lobby' ? (door.kind === 'hopital' ? '🏥 Hall de l’hôpital' : '🏢 Hall de l’immeuble') : door.service ? SERVICES[door.service].label : INT_TYPES[door.type].label, 1400);
   } finally { entering = false; }
 }
-function exitInterior() {
-  const d = inside.door;
+function exitInterior(force) {
+  const d0 = inside.door;
+  if (!force && d0.unit && !SHOT && !window.PENDING) { openMenu('🚪 Sortir', [{ t: '🛗 Ascenseur → hall de l’immeuble', fn: () => { closeMenu(); inside = null; enterDoor(lobbyFor(d0.of)); }, keep: false }, { t: '🏙️ Sortir dans la rue', fn: () => { closeMenu(); exitInterior(true); }, keep: false }]); return; }
+  const d = d0.unit ? d0.of : d0;
   player.pos.set(d.x + d.out[0] * 1.6, SW, d.z + d.out[1] * 1.6);
   player.heading = Math.atan2(d.out[0], d.out[1]); cam.yaw = Math.atan2(-d.out[0], -d.out[1]) + Math.PI; cam.pitch = 0.42; cam.dist = cam.prevDist || 9;
   inside = null;
@@ -4074,7 +4123,7 @@ function buildLobby(door) {
   if (door.kind === 'appart') {
     // mailboxes + stairs/lift corridor in the back
     for (let k = 0; k < 4; k++) if (proto.PostBox_2_A) iput('PostBox_2_A', 0.4, 6.4 + k * 0.7, Math.PI / 2, 0, true, 0.8);
-    iput('I_Picture_04', 0.15, 8.4, Math.PI / 2, 1.5, false); roomLabel('Escalier', 11.25);
+    iput('I_Picture_04', 0.15, 8.4, Math.PI / 2, 1.5, false); roomLabel('🛗 Ascenseur', 11.25);
     for (const x of [1.5, 3.5]) iput('I_Library', x, 0.25, 0);
     R.lift = new THREE.Vector3(R.ox + 11.2, 0, R.oz + 2.4);
     roomNPC(3.0, 7.8, 'LookingAround-loop', 0.4);
@@ -4097,8 +4146,8 @@ function lobbyAction() {
   }
   if (r.lift && near(r.lift, 1.8)) {
     const mine = unitsOf(d.of).filter(u => isRes(u.id));
-    if (!mine.length) { banner('🔒 Escalier réservé aux résidents (accueil pour acheter, louer ou visiter)', 1800); return true; }
-    if (mine.length === 1) goUnit(mine[0]); else openMenu('⬆️ Escalier', mine.map(u => ({ t: 'Appartement ' + u.label + ' (' + MODE_LABEL[propOf(u.id).mode] + ')', fn: () => goUnit(u), keep: false })));
+    if (!mine.length) { banner('🔒 Ascenseur réservé aux résidents (accueil pour acheter, louer ou visiter)', 1800); return true; }
+    if (mine.length === 1) goUnit(mine[0]); else openMenu('🛗 Ascenseur', mine.map(u => ({ t: 'Appartement ' + u.label + ' (' + MODE_LABEL[propOf(u.id).mode] + ')', fn: () => goUnit(u), keep: false })));
     return true;
   }
   return false;
@@ -4106,7 +4155,7 @@ function lobbyAction() {
 function lobbyPrompt() {
   const r = inside.room, near = (v, m) => v && Math.hypot(v.x - player.pos.x, v.z - player.pos.z) < m;
   if (near(r.counter, 2.2)) return inside.door.kind === 'hopital' ? 'E : accueil des urgences' : 'E : accueil (acheter, louer, visiter, mes appartements)';
-  if (r.lift && near(r.lift, 1.8)) return unitsOf(inside.door.of).some(u => isRes(u.id)) ? 'E : monter à mon appartement' : 'Escalier — réservé aux résidents';
+  if (r.lift && near(r.lift, 1.8)) return unitsOf(inside.door.of).some(u => isRes(u.id)) ? 'E : monter à mon appartement' : 'Ascenseur — réservé aux résidents';
   return '';
 }
 function hospitalMenu() {
@@ -4141,7 +4190,8 @@ function phoneBack() { if (PH.app) { PH.app = PH.stack.pop() || null; phoneRende
 function phoneHome() { PH.app = null; PH.stack = []; phoneRender(); }
 function pel(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
 function prow(label, fn, dis) { const b = pel('button', 'pr', label); if (dis) b.disabled = true; b.onclick = () => { fn(); phoneRender(); }; return b; }
-function gpsSet(x, z, label) { L.gps = new THREE.Vector3(x, 0, z); L.gpsLabel = label; phoneNotify('📍 GPS', 'Itinéraire vers ' + label); }
+function gpsSet(x, z, label) { L.gps = new THREE.Vector3(x, 0, z); L.gpsLabel = label; phoneNotify('📍 GPS', 'Itinéraire vers ' + label); gpsOpen(); }
+function gpsOpen() { if (PH.open && PH.app && PH.app !== 'carte') return; if (!PH.open) togglePhone(true); if (PH.app !== 'carte') phoneGo('carte'); }
 const pdist = (x, z) => Math.hypot(x - player.pos.x, z - player.pos.z);
 function travelTo(x, z, label, price) {
   if (player.inCar || inside) { banner(inside ? 'Sors du bâtiment d’abord' : 'Descends de voiture d’abord', 1400); return false; }
@@ -4268,7 +4318,13 @@ function drawPhoneGps() {
   if (g) b.querySelector('b').textContent = g.label;
 }
 function drawPhoneMap() {
-  const c = PH.mapCanvas; if (!c || !hud.mm) return; const g = c.getContext('2d'); g.drawImage(hud.mm, 0, 0, c.width, c.height);
+  const c = PH.mapCanvas; if (!c || !hud.mm) return; const g = c.getContext('2d'), W = c.width, k = hud.mm.width / (2 * HALF);
+  const span = 260 * k, sx = (player.pos.x + HALF) * k - span / 2, sz = (player.pos.z + HALF) * k - span / 2;
+  g.fillStyle = '#2b3240'; g.fillRect(0, 0, W, W); g.drawImage(hud.mm, sx, sz, span, span, 0, 0, W, W);
+  const toC = (x, z) => [((x + HALF) * k - sx) / span * W, ((z + HALF) * k - sz) / span * W];
+  const tg = gpsTarget(); if (tg) { const [ax, ay] = toC(player.pos.x, player.pos.z), [bx, by] = toC(tg.x, tg.z); g.strokeStyle = '#2196f3'; g.lineWidth = 5; g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax, by); g.lineTo(bx, by); g.stroke(); g.fillStyle = '#e53935'; g.beginPath(); g.arc(Math.max(6, Math.min(W - 6, bx)), Math.max(6, Math.min(W - 6, by)), 7, 0, 7); g.fill(); }
+  const h = player.inCar ? player.inCar.obj.rotation.y : player.heading;
+  g.save(); g.translate(W / 2, W / 2); g.rotate(-h + Math.PI); g.fillStyle = '#fff'; g.strokeStyle = '#1565c0'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 8); g.lineTo(0, 4); g.lineTo(-8, 8); g.closePath(); g.fill(); g.stroke(); g.restore();
 }
 let phTick = 0;
 function updatePhone(dt) {
@@ -4276,8 +4332,9 @@ function updatePhone(dt) {
   if (inside && isRes(inside.door.id)) PH.battery = Math.min(100, PH.battery + dt * 2);
   if (PH.order) { PH.order.t -= dt; if (PH.order.t <= 0) { chest[PH.order.id] = (chest[PH.order.id] || 0) + 1; phoneNotify('🛵 Livraison', ITEMS[PH.order.id].n + ' livré chez toi (coffre)'); PH.order = null; } }
   updatePaid(); updateGates(dt); updateGpsStrip(); updateContracts(dt);
+  if (M.active !== PH.lastMis) { PH.lastMis = M.active; if (M.active) gpsOpen(); }
   if (J.task !== PH.lastTask) { PH.lastTask = J.task; if (J.task) phoneNotify(JOBS[J.job] ? JOBS[J.job].icon + ' ' + JOBS[J.job].label : '💼 Métier', J.task.goal || 'Nouvelle tâche'); }
-  phTick += dt; if (PH.open && phTick > 0.5) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); } }
+  phTick += dt; if (PH.open && phTick > (PH.app === 'carte' ? 0.1 : 0.5)) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); } }
 }
 function initPhone() {
   const p = $('phone'); if (!p) return;
