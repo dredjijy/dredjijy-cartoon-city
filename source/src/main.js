@@ -357,6 +357,8 @@ function clearDoorways() {
     const before = b.mats.length; b.mats = b.mats.filter(mt => { v.setFromMatrixPosition(mt); return v.y > 2.5 || (!near(v.x, v.z) && !inYard(v.x, v.z)); }); DOORWAY_CLEARED += before - b.mats.length;
   }
   for (let i = propCols.length - 1; i >= 0; i--) { const c = propCols[i]; const cx = (c[0] + c[2]) / 2, cz = (c[1] + c[3]) / 2; if (c[2] - c[0] < 1.2 && jobLots.some(l => Math.abs(cx - l.cx) < 18.5 && Math.abs(cz - l.cz) < 18.5) && Math.abs(c[2] - c[0] - 0.64) < 0.2) { propCols.splice(i, 1); continue; } if (c[2] - c[0] < 1.2 && near((c[0] + c[2]) / 2, (c[1] + c[3]) / 2)) propCols.splice(i, 1); }
+  { const poles = []; for (const b of buckets.values()) if (/^(StreetLamp|Lamp_Court|Lights_|Parkomat|Sign|BusStop|RoadSign|Pole)/.test(b.name)) for (const mt of b.mats) { v.setFromMatrixPosition(mt); poles.push([v.x, v.z]); }
+    for (const b of buckets.values()) if (/^Tree/.test(b.name)) { const n0 = b.mats.length; b.mats = b.mats.filter(mt => { v.setFromMatrixPosition(mt); return !poles.some(([x, z]) => Math.hypot(x - v.x, z - v.z) < 2.2); }); DOORWAY_CLEARED += n0 - b.mats.length; } }
   for (let i = lampHeads.length - 1; i >= 0; i--) if (near(lampHeads[i].x, lampHeads[i].z)) lampHeads.splice(i, 1);
 }
 function buildInstances() {
@@ -817,7 +819,7 @@ let skyReady = false;
 const CARS = [];
 const cars = [];
 function initCarsList() {
-  for (const n of Object.keys(proto)) if (/^(C_(Femintine|Thunderball|Chunkzer|Galacci|Neptune|Rosaro|Rammer|Mortli|Dante|Lavendra|Mascuilo|Unimo|Forge|car3)|SportCar_\d+|PickUp_\d+|PostCar_\d+|Van_\d+|Ambulance|IceCreamTruck_\d|PoliceCar|SMAT|Taxi|Car_\d+_[A-Z]+|Taxi_\d|Car_Police_\d_A_1|Ambulance_2_A|PostCar_1_A|IceTruck_1_A|Truck_A|RVCar_A|Car_3_1_A|Car_4_1_A)$/.test(n)) CARS.push(n);
+  for (const n of Object.keys(proto)) if (/^(C_(Femintine|Mascuilo|car3)|SportCar_\d+|PickUp_\d+|PostCar_\d+|Van_\d+|Ambulance|IceCreamTruck_\d|PoliceCar|SMAT|Taxi|Car_\d+_[A-Z]+|Taxi_\d|Car_Police_\d_A_1|Ambulance_2_A|PostCar_1_A|IceTruck_1_A|Truck_A|RVCar_A|Car_3_1_A|Car_4_1_A)$/.test(n)) CARS.push(n);
 }
 function makeObject(name) {
   const g = new THREE.Group(); g.userData.name = name;
@@ -2265,7 +2267,7 @@ function assignServices() {
     } else {
       const sign = { resto: 'PizzaSign_1_A', epicerie: 'MarketSign_1_A', jouets: 'GymSign_1_A', appart: d.id % 4 === 0 ? 'HotelSign_3_A' : null }[d.type];
       if (sign && proto[sign]) { // wall signs: thin along X, readable face on -X, origin on the wall plane
-        const bb = proto[sign].bb, len = Math.max(bb.max.z - bb.min.z, bb.max.y - bb.min.y), sc = Math.min(1, 3.6 / len);
+        const bb = proto[sign].bb, len = Math.max(bb.max.z - bb.min.z, bb.max.y - bb.min.y), sc = Math.min(0.8, 2.4 / len);
         const blade = sign === 'HotelSign_3_A';
         put(sign, d.x - d.out[0] * 0.7, SW + (blade ? 1.2 : 3.0), d.z - d.out[1] * 0.7, Math.atan2(d.out[1], -d.out[0]) + (blade ? Math.PI / 2 : 0), sc);
       }
@@ -2310,7 +2312,7 @@ function serviceMenu(d) {
     if (kind === 'police') return openMenu(T, [{ sep: 'Amendes impayées : ' + L.fines + ' $ (feux rouges grillés)' }, { t: 'Payer mes amendes', dis: !L.fines, fn: () => { if (payMoney(L.fines)) { L.fines = 0; banner('Amendes payées', 1200); } } }, { t: '🚓 Emprunter une voiture de patrouille (devant)', fn: () => banner('Monte dans la voiture de police garée devant (E)', 1600), keep: false }]);
     if (kind === 'bureaux') return openMenu(T, [{ t: '💼 Travailler 20 s au bureau (+45 $)', fn: () => { closeMenu(); work(20, 45, 'Travail de bureau'); }, keep: false }]);
     if (kind === 'concession') {
-      const cat = [['C_Thunderball', 'Thunderball', 700], ['C_Neptune', 'Neptune', 550], ['C_Galacci', 'Galacci', 520], ['C_Rammer', 'Rammer', 480], ['C_Mascuilo', 'Mascuilo (mini)', 250], ['C_car3', 'Classique V3', 380], ['SportCar_1', 'Voiture de sport', 600], ['SportCar_7', 'Sportive rouge', 650], ['PickUp_2', 'Pick-up', 450], ['Van_2', 'Utilitaire', 400], ['Car_5_A', 'Citadine', 300], ['Taxi', 'Berline taxi', 350]].filter(c => proto[c[0]]);
+      const cat = [['C_Thunderball', 'Thunderball', 700], ['C_car3', 'Classique V3 (familiale)', 380], ['C_Galacci', 'Galacci', 520], ['C_Rammer', 'Rammer', 480], ['C_Mascuilo', 'Mascuilo (mini)', 250], ['C_car3', 'Classique V3', 380], ['SportCar_1', 'Voiture de sport', 600], ['SportCar_7', 'Sportive rouge', 650], ['PickUp_2', 'Pick-up', 450], ['Van_2', 'Utilitaire', 400], ['Car_5_A', 'Citadine', 300], ['Taxi', 'Berline taxi', 350]].filter(c => proto[c[0]]);
       const r = cat.map(([m, n, p]) => ({ t: n + ' — ' + p + ' $', dis: !L.permis, fn: () => { if (!payMoney(p)) return; const o = makeObject(m); o.position.set(d.x + d.out[0] * 3 + d.out[1] * 5, SW + 0.24, d.z + d.out[1] * 3 + d.out[0] * 5); o.rotation.y = Math.atan2(d.out[1], -d.out[0]); scene.add(o); const car = { obj: o, speed: 0, owned: true, fuel: 100, hp: 100, name: n }; parkedPlayerCars.push(car); L.owned.push(car); banner('🚗 ' + n + ' achetée, garée devant', 1600); } }));
       const mine = nearestOwnCar(); if (mine && mine.owned) r.push({ t: 'Vendre « ' + mine.name + ' » (moitié prix)', fn: () => { const p = 200; M.money += p; scene.remove(mine.obj); parkedPlayerCars.splice(parkedPlayerCars.indexOf(mine), 1); L.owned.splice(L.owned.indexOf(mine), 1); banner('Véhicule vendu +' + p + ' $', 1400); } });
       return openMenu(T, r, L.permis ? 'Le véhicule t’appartient : il apparaît dans tes possessions.' : 'Il faut le permis de conduire (mairie).');
@@ -3277,8 +3279,9 @@ const isTwo = (obj) => obj && TWO_WHEEL.test(obj.userData.name || '');
 const SEAT = { y: 0.22, z: 0.32 }; // seat point in scooter space (forward is -Z); tuned on the model
 const riders = [];
 function legBones(o) { const b = {}; o.traverse(n => { if (!n.isBone) return; const k = n.name.replace(/[^A-Za-z]/g, ''); if (/^UpperLeg[LR]$/.test(k)) b[k] = n; if (/^Leg[LR]$/.test(k)) b[k] = n; if (/^Hips$/.test(k)) b.Hips = n; if (/^Arm[LR]$/.test(k)) b[k] = n; if (/^ForeArm[LR]$/.test(k)) b[k] = n; }); return b; }
+function standPose(ch) { if (!ch.bones || !ch.rest) return; for (const [k, r] of Object.entries(ch.rest)) ch.bones[k].rotation.x = r; }
 function seatPose(ch) {
-  if (!ch.bones) ch.bones = legBones(ch.o);
+  if (!ch.bones) { ch.bones = legBones(ch.o); ch.rest = {}; for (const [k, b] of Object.entries(ch.bones)) ch.rest[k] = b.rotation.x; }
   const b = ch.bones, P = SEATPOSE;
   for (const s of ['L', 'R']) {
     if (b['UpperLeg' + s]) b['UpperLeg' + s].rotation.x = P.thigh;
@@ -3344,7 +3347,7 @@ function offerRows() {
 // ---- dealership catalogue: image rendered from the model + specs
 const DEALER = [
   ['C_Thunderball', 'Thunderball', 700, 'Berline sportive, la plus rapide du catalogue.', 180, 8.5, 4, 380],
-  ['C_Neptune', 'Neptune', 550, 'Familiale confortable et polyvalente.', 130, 6.4, 5, 480],
+  ['C_car3', 'Classique V3 (familiale)', 380, 'Familiale confortable et polyvalente.', 130, 6.4, 5, 480],
   ['C_Galacci', 'Galacci', 520, 'Compacte élégante pour la ville.', 120, 6.0, 4, 300],
   ['C_Rammer', 'Rammer', 480, 'Robuste et facile à garer.', 110, 7.2, 5, 420],
   ['C_Mascuilo', 'Mascuilo (scooter)', 250, 'Scooter économique, se faufile partout.', 15, 2.4, 2, 30],
@@ -3373,7 +3376,7 @@ function dealerUI(d) {
   const h = document.createElement('div'); h.className = 'mh'; h.innerHTML = '<b>🚗 Concession — véhicules disponibles</b><span>💵 ' + M.money + ' $ · 🏦 ' + L.bank + ' $</span>'; m.append(h);
   if (!L.permis) { const p = document.createElement('p'); p.textContent = 'Il te faut le permis de conduire (mairie) pour acheter.'; m.append(p); }
   const grid = document.createElement('div'); grid.className = 'dgrid'; m.append(grid);
-  for (const v of DEALER.filter(v => proto[v[0]])) {
+  for (const v of DEALER.filter(v => proto[v[0]] && !/^C_(Thunderball|Neptune|Galacci|Rammer)$/.test(v[0]))) {
     const [model, n, price, desc, ch, conso, seats, trunk] = v;
     const c = document.createElement('div'); c.className = 'dcar';
     c.innerHTML = '<img src="' + carThumb(model) + '"><b></b><p></p><ul><li>⚡ Puissance : ' + ch + ' ch</li><li>⛽ Consommation : ' + conso + ' L/100 km</li><li>💺 Places : ' + seats + '</li><li>🧳 Coffre : ' + trunk + ' L</li></ul>';
@@ -3553,7 +3556,7 @@ function updatePedLife(dt) {
   for (const p of peds) {
     p.lt = (p.lt ?? rr(0, 20)) - dt;
     if (p.away) { if (p.lt <= 0 && !(night && p.nightHome)) { p.away = false; p.o.visible = true; p.walking = true; play(p, pick(['Walk_A-loop', 'Walk_B-loop'])); } continue; }
-    if (p.benched) { seatPose(p); if (p.lt <= 0) { p.benched = false; p.walking = true; play(p, 'Walk_A-loop'); } continue; }
+    if (p.benched) { seatPose(p); if (p.lt <= 0) { p.benched = false; standPose(p); p.o.position.x += Math.sin(p.o.rotation.y) * 0.8; p.o.position.z += Math.cos(p.o.rotation.y) * 0.8; p.walking = true; play(p, 'Walk_A-loop'); } continue; }
     if (night && p.nightHome === undefined) p.nightHome = chance(0.6);
     if (!night) p.nightHome = undefined;
     if (p.lt > 0) continue;
@@ -3563,7 +3566,7 @@ function updatePedLife(dt) {
     const d = doors.find(d => (d.service || d.type === 'resto') && Math.hypot(d.x - x, d.z - z) < 6);
     if (d && chance(0.5)) { p.away = true; p.o.visible = false; p.lt = rr(15, 45); continue; } // goes into the shop
     const b = benchSpots.find(b => !b.used && Math.hypot(b.x - x, b.z - z) < 8);
-    if (b && chance(0.6)) { b.used = true; p.benched = true; p.walking = false; p.o.position.set(b.x, SW, b.z); p.o.rotation.y = b.rot; play(p, 'Idle_A-loop'); p.lt = rr(20, 60); setTimeout(() => b.used = false, p.lt * 1000); continue; }
+    if (b && chance(0.6)) { b.used = true; p.benched = true; p.walking = false; p.o.position.set(b.x, SW + 0.05, b.z); p.o.rotation.y = b.rot; play(p, 'Idle_A-loop'); p.lt = rr(20, 60); setTimeout(() => b.used = false, p.lt * 1000); continue; }
     if (!p.walking) { p.walking = true; play(p, pick(['Walk_A-loop', 'Walk_B-loop', 'Walk_C-loop'])); }
   }
 }
