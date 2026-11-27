@@ -14,6 +14,14 @@ import { createClient } from '@supabase/supabase-js';
 const Q = new URLSearchParams(location.search);
 // phones / tablets: lighter rendering so the city stays playable
 const MOBILE = !!Q.get('touch') || matchMedia('(pointer:coarse)').matches;
+// graphics quality: bas / moyen / haut (saved). Auto: mobile -> bas, small CPU -> moyen, otherwise haut, then adapted to the measured FPS
+const QSET = { bas: { dpr: 1, shadow: 1024, area: 90, shEvery: 3, lights: 2, ao: false, far: 900, fog: [250, 850], anim: 70 },
+  moyen: { dpr: 1.25, shadow: 2048, area: 150, shEvery: 2, lights: 3, ao: false, far: 1600, fog: [450, 1400], anim: 110 },
+  haut: { dpr: 2, shadow: 4096, area: 260, shEvery: 1, lights: 6, ao: true, far: 3000, fog: [600, 1800], anim: 180 } };
+let QUAL = Q.get('q') || (() => { try { return localStorage.getItem('cc_quality'); } catch (e) { return null; } })() || 'auto';
+const QAUTO = QUAL === 'auto';
+if (QAUTO) QUAL = MOBILE ? 'bas' : (navigator.hardwareConcurrency || 4) >= 8 ? 'haut' : 'moyen';
+let QS = QSET[QUAL] || QSET.moyen;
 const SHOT = Q.get('shot');            // headless screenshot preset
 const statusEl = document.getElementById('status');
 const say = (t) => { if (statusEl) statusEl.textContent = t; };
@@ -27,7 +35,7 @@ const chance = (p) => rnd() < p;
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: !MOBILE, preserveDrawingBuffer: !!SHOT, powerPreference: 'high-performance' });
-renderer.setPixelRatio(SHOT ? 1 : Math.min(devicePixelRatio, MOBILE ? 1.25 : 2));
+renderer.setPixelRatio(SHOT ? 1 : Math.min(devicePixelRatio, QS.dpr));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -36,7 +44,7 @@ renderer.shadowMap.type = MOBILE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(MOBILE ? 50 : 40, innerWidth / innerHeight, 0.5, MOBILE ? 900 : 3000);
+const camera = new THREE.PerspectiveCamera(MOBILE ? 50 : 40, innerWidth / innerHeight, 0.5, SHOT ? 3000 : QS.far);
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.47;
@@ -47,7 +55,7 @@ const hemi = new THREE.HemisphereLight(0xdfefff, 0x9a8f7a, 1.25);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff4e0, 2.6);
 sun.castShadow = true;
-sun.shadow.mapSize.set(MOBILE ? 1024 : 4096, MOBILE ? 1024 : 4096);
+sun.shadow.mapSize.set(SHOT ? 4096 : QS.shadow, SHOT ? 4096 : QS.shadow);
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.04;
 const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.35).normalize();
@@ -801,7 +809,7 @@ function environment() {
     skyReady = true;
   });
   scene.backgroundIntensity = 1.0;
-  scene.fog = MOBILE ? new THREE.Fog(0xcfe3f4, 250, 850) : new THREE.Fog(0xcfe3f4, 600, 1800);
+  scene.fog = SHOT ? new THREE.Fog(0xcfe3f4, 600, 1800) : new THREE.Fog(0xcfe3f4, QS.fog[0], QS.fog[1]);
 }
 let skyReady = false;
 
@@ -1427,6 +1435,7 @@ function setFreeCam(v) {
   if (!v) controls.target.copy(player.pos);
 }
 window.setFreeCam = setFreeCam;
+window.__perf = () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, q: QUAL });
 window.__dbg = () => ({ x: +player.pos.x.toFixed(2), z: +player.pos.z.toFixed(2), inCar: !!player.inCar, dist: +cam.dist.toFixed(1), yaw: +cam.yaw.toFixed(2), on: game.on, mobile: MOBILE, touchUI: document.body.classList.contains('touch') });
 window.startGame = (free) => {
   if (MOBILE && !SHOT) { const el = document.documentElement; try { (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el)?.then?.(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch?.(() => {}); } catch (e) {} }
@@ -1925,7 +1934,7 @@ function initDayNight() {
   lampHeads.forEach((h, i) => { _m.makeTranslation(h.x, h.y - 0.15, h.z); glow.setMatrixAt(i, _m); _m.makeTranslation(h.x, groundY(h.x, h.z) + 0.06, h.z); pools.setMatrixAt(i, _m); });
   for (const m of [glow, pools]) { m.computeBoundingSphere(); m.frustumCulled = false; scene.add(m); }
   // a few real lights that follow the player (nearest lamps)
-  for (let i = 0; i < (MOBILE ? 2 : 6); i++) { const l = new THREE.PointLight(0xffc98a, 0, 16, 1.6); scene.add(l); lampLights.push(l); }
+  for (let i = 0; i < (SHOT ? 6 : QS.lights); i++) { const l = new THREE.PointLight(0xffc98a, 0, 16, 1.6); scene.add(l); lampLights.push(l); }
   // car head/tail lights
   const n = cars.length + 20;
   carGlow = new THREE.InstancedMesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff6d8, toneMapped: false, transparent: true, opacity: 0 }), n * 2);
@@ -3192,7 +3201,7 @@ function drawMissionsOnMap(c, k) {
 }
 
 // ---------------------------------------------------------------- loop / post
-let composer, gtao, useAO = !Q.has('noao');
+let composer, gtao, useAO = !Q.has('noao') && (SHOT || QS.ao);
 function setupPost() {
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
@@ -3925,6 +3934,39 @@ async function cloudPush() {
   try { const d = JSON.parse(localStorage.getItem('cartooncity_save') || 'null'); if (d) { const { error } = await sb.from('saves').upsert({ user_id: sbUser.id, data: d, updated_at: new Date().toISOString() }); if (error) console.warn('cloud save', error.message); } }
   finally { cloudBusy = false; }
 }
+
+// ---- performance: animation level of detail, far pedestrians hidden, shadow throttling, auto quality
+let shFrame = 0;
+const _lp = new THREE.Vector3();
+function animLOD(dt) {
+  const fx = camera.position.x, fz = camera.position.z, near = SHOT ? 1e9 : QS.anim, far2 = near * near, mid2 = (near * 0.45) ** 2;
+  for (const m of mixers) {
+    const o = m.getRoot(); if (!o.parent || o.visible === false && !o.userData.lodHidden) { continue; }
+    o.getWorldPosition(_lp); const d2 = (_lp.x - fx) ** 2 + (_lp.z - fz) ** 2;
+    if (d2 > far2) { m._acc = (m._acc || 0) + dt; continue; } // not animated far away
+    if (d2 > mid2) { m._acc = (m._acc || 0) + dt; if ((m._acc) < 0.1) continue; m.update(m._acc); m._acc = 0; continue; } // 10 fps mid distance
+    m.update(dt + (m._acc || 0)); m._acc = 0;
+  }
+  // street pedestrians beyond the animation range are not drawn
+  if (!SHOT) for (const p of peds) { if (p.away) continue; const d2 = (p.o.position.x - fx) ** 2 + (p.o.position.z - fz) ** 2; const hide = d2 > far2 * 1.6; if (hide !== !!p.o.userData.lodHidden) { p.o.userData.lodHidden = hide; p.o.visible = !hide; } }
+}
+const FPS = { t: 0, n: 0, low: 0, done: false };
+function adaptQuality(dt) {
+  if (!QAUTO || FPS.done || !game.on) return;
+  FPS.t += dt; FPS.n++;
+  if (FPS.t >= 4) { const fps = FPS.n / FPS.t; FPS.t = 0; FPS.n = 0;
+    if (fps < 32) { FPS.low++; if (FPS.low >= 2) { const next = QUAL === 'haut' ? 'moyen' : QUAL === 'moyen' ? 'bas' : null; if (next) { applyQuality(next, true); FPS.low = 0; } else FPS.done = true; } }
+    else { FPS.low = 0; if (fps > 50) FPS.done = true; } }
+}
+function applyQuality(q, auto) {
+  QUAL = q; QS = QSET[q]; if (!auto) { try { localStorage.setItem('cc_quality', q); } catch (e) {} }
+  renderer.setPixelRatio(Math.min(devicePixelRatio, QS.dpr)); renderer.setSize(innerWidth, innerHeight);
+  useAO = QS.ao; camera.far = QS.far; camera.updateProjectionMatrix(); if (scene.fog) { scene.fog.near = QS.fog[0]; scene.fog.far = QS.fog[1]; }
+  if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } sun.shadow.mapSize.set(QS.shadow, QS.shadow);
+  lampLights.forEach((l, i) => { l.visible = i < QS.lights; });
+  banner('⚙️ Qualité graphique : ' + q + (auto ? ' (réglée automatiquement)' : ''), 1800);
+  const sel = document.getElementById('qualSel'); if (sel && !auto) sel.value = q;
+}
 // ================================================================ PARKING BARRIERS, PAID ZONE, LOBBIES, PHONE
 // ---- lifting barrier (RoadStop_1_A from the city pack: the arm is its own node, we pivot it)
 const gates = [];
@@ -4245,7 +4287,7 @@ function initPhone() {
 
 const clock = new THREE.Clock();
 function updateShadowCam() {
-  const d = Math.min(260, Math.max(60, camera.position.distanceTo(controls.target) * 1.1));
+  const d = Math.min(SHOT ? 260 : QS.area, Math.max(60, camera.position.distanceTo(controls.target) * 1.1));
   const sc = sun.shadow.camera; sc.left = -d; sc.right = d; sc.top = d; sc.bottom = -d; sc.near = 1; sc.far = 900; sc.updateProjectionMatrix();
   sun.target.position.copy(controls.target);
   sun.position.copy(controls.target).addScaledVector(SUN_DIR, 400);
@@ -4258,7 +4300,8 @@ function frame() {
   if (game.on) updatePhone(dt);
   if (!game.on || game.freeCam) controls.update();
   updateCars(dt); updatePeds(dt); updateSmoke(dt); updateFlyers(dt, t);
-  for (const m of mixers) m.update(dt);
+  animLOD(dt);
+  if (!SHOT) { shFrame++; renderer.shadowMap.autoUpdate = false; if (shFrame % QS.shEvery === 0) renderer.shadowMap.needsUpdate = true; adaptQuality(dt); }
   updateRiders(); updateWheels(dt); updateActors(dt); if (game.on) updatePedLife(dt);
   updateShadowCam();
   if (useAO) composer.render(); else renderer.render(scene, camera);
@@ -4524,4 +4567,6 @@ addEventListener('resize', () => {
 });
 window.setPreset = setPreset;
 window.toggleAO = () => { useAO = !useAO; return useAO; };
+window.setQuality = (q) => { if (q === 'auto') { try { localStorage.setItem('cc_quality', 'auto'); } catch (e) {} banner('⚙️ Qualité automatique (au prochain lancement)', 1600); return; } applyQuality(q, false); };
+{ const sel = document.getElementById('qualSel'); if (sel) sel.value = (() => { try { return localStorage.getItem('cc_quality') || 'auto'; } catch (e) { return 'auto'; } })(); }
 main().catch(e => { console.error(e); say('Erreur : ' + e.message); });

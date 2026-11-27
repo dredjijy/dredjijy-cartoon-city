@@ -114,6 +114,7 @@
   #account #accStatus{display:block;margin:4px 0;opacity:.8}
   #accForm{display:flex;gap:6px;flex-wrap:wrap}#accForm input{flex:1;min-width:130px;padding:8px;border:2px solid #cbd5e1;border-radius:10px;font:inherit;touch-action:auto;-webkit-user-select:text;user-select:text}
   #account .btn{padding:8px 12px;font-size:13px}
+  #qualRow{margin:6px 0;font-size:13px}#qualRow select{font:inherit;padding:4px 8px;border-radius:8px;border:2px solid #cbd5e1}
 </style>
 </head>
 <body>
@@ -140,6 +141,7 @@
     <div id="account"><b>☁️ Compte joueur</b> <span id="accStatus">…</span>
       <div id="accForm"><input id="accEmail" type="email" placeholder="e-mail" autocomplete="email"><input id="accPw" type="password" placeholder="mot de passe" autocomplete="current-password"><button id="accIn" class="btn">Connexion</button><button id="accUp" class="btn">Créer un compte</button></div>
       <button id="accOut" class="btn" style="display:none">Déconnexion</button></div>
+    <div id="qualRow">⚙️ Qualité graphique : <select id="qualSel" onchange="setQuality(this.value)"><option value="auto">Auto (s'adapte)</option><option value="bas">Bas (téléphones, vieux PC)</option><option value="moyen">Moyen</option><option value="haut">Haut (ombres fines, occlusion)</option></select></div>
     <div class="row">
       <button class="btn go" onclick="startGame(false)">Jouer</button>
       <button class="btn" onclick="startGame(true)">Visiter (caméra libre)</button>
