@@ -18,6 +18,27 @@
   #start p{margin:0 0 14px;color:#47506a}
   #start table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:18px}
   #start td{padding:4px 0;color:#1d2740}#start td:first-child{font-weight:700;width:48%}
+  body.menu #status{display:none}
+  #start{background:linear-gradient(180deg,rgba(80,150,255,.55),rgba(20,30,60,.55))!important;flex-direction:column}
+  #scrTitle{text-align:center}#scrTitle.on{display:flex!important;flex-direction:column;align-items:center;gap:18px}
+  .logo{font:900 clamp(54px,12vw,128px)/0.95 "Arial Rounded MT Bold","Trebuchet MS","Comic Sans MS",system-ui,sans-serif;letter-spacing:2px;-webkit-text-stroke:6px #1d2740;paint-order:stroke fill;filter:drop-shadow(0 8px 0 #1d2740)}
+  .logo span{display:inline-block;animation:bob 2.2s ease-in-out infinite}
+  .logo span:nth-child(5n+1){color:#ffd23f;transform:rotate(-6deg)}.logo span:nth-child(5n+2){color:#ff6b6b;transform:rotate(4deg)}.logo span:nth-child(5n+3){color:#4dd4ff;transform:rotate(-3deg)}.logo span:nth-child(5n+4){color:#7cff6b;transform:rotate(6deg)}.logo span:nth-child(5n){color:#ff9f43;transform:rotate(-5deg)}
+  .logo span:nth-child(2){animation-delay:.1s}.logo span:nth-child(3){animation-delay:.2s}.logo span:nth-child(4){animation-delay:.3s}.logo span:nth-child(5){animation-delay:.4s}.logo span:nth-child(6){animation-delay:.5s}.logo span:nth-child(7){animation-delay:.6s}.logo span:nth-child(9){animation-delay:.2s}.logo span:nth-child(10){animation-delay:.4s}.logo span:nth-child(11){animation-delay:.6s}.logo span:nth-child(12){animation-delay:.8s}
+  @keyframes bob{0%,100%{translate:0 0}50%{translate:0 -10px}}
+  .tag{font:800 22px system-ui,sans-serif;color:#fff;-webkit-text-stroke:0;text-shadow:0 2px 0 #1d2740,0 0 6px rgba(0,0,0,.5);margin:0}
+  .btn.huge{font-size:24px;padding:16px 40px;border-radius:18px;box-shadow:0 6px 0 #1a4bb0}
+  #start h1.ct{font-family:"Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;font-weight:900;color:#ffd23f;-webkit-text-stroke:2px #1d2740;paint-order:stroke fill;text-shadow:0 3px 0 #1d2740}
+  .sexrow{display:flex;gap:12px;margin:8px 0 12px}.sexb{flex:1;font-size:54px;padding:14px;border:4px solid #e3e8f2;border-radius:16px;background:#f4f7fc;cursor:pointer}.sexb b{display:block;font-size:18px;color:#1d2740}.sexb.sel{border-color:#2f6fe4;background:#e3ecff}
+  .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:52vh;overflow:auto;margin-bottom:12px}.pgrid.small{grid-template-columns:repeat(auto-fill,minmax(64px,1fr));max-height:24vh}
+  .pgrid div{border:3px solid #e3e8f2;border-radius:12px;cursor:pointer;background:#f4f7fc}.pgrid div.sel{border-color:#2f6fe4;background:#e3ecff}.pgrid img{width:100%;display:block}
+  .stylewrap{display:flex;gap:14px;flex-wrap:wrap}.prev{flex:0 0 200px;background:radial-gradient(#fff,#dfe7f7);border-radius:16px;display:flex;align-items:center;justify-content:center}.prev img{width:200px}.opts{flex:1;min-width:240px}
+  #pals .pal{margin:8px 0}#pals .pal b{display:block;font-size:13px;margin-bottom:4px}#pals .pal span{display:inline-block;width:26px;height:26px;border-radius:50%;margin:0 4px 4px 0;border:3px solid #fff;box-shadow:0 0 0 1px #cbd5e1;cursor:pointer}#pals .pal span.sel{box-shadow:0 0 0 3px #2f6fe4}#pals .pal span.no{background:repeating-linear-gradient(45deg,#fff 0 4px,#e3e8f2 4px 8px)}
+  #ld{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(420px,80vw);text-align:center;color:#fff;font:700 13px system-ui,sans-serif;text-shadow:0 1px 2px #000}
+  #ld div{height:12px;border-radius:8px;background:rgba(0,0,0,.35);overflow:hidden;border:2px solid #fff}#ld i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd23f,#7cff6b);transition:width .3s}
+  #ld.done{opacity:0;transition:opacity .6s}
+  #start .p.wait{color:#a15c00}#start .btn:disabled{opacity:.5;cursor:wait}
+  #fadein{position:fixed;inset:0;background:#fff;z-index:90;pointer-events:none;opacity:0;transition:opacity .8s}
   #start .card{max-height:92vh;overflow:auto;box-sizing:border-box}
   body:not(.dev) #top{display:none}
   #start .scr{display:none}#start .scr.on{display:block}
@@ -161,36 +182,52 @@
   .dnav{display:flex;gap:10px;align-items:center;justify-content:center;margin:6px 0}
 </style>
 </head>
-<body>
+<body class="menu">
 <div id="status">Chargement…</div>
-<div id="start">
-  <div class="card scr" id="scrAcc">
-    <h1>Cartoon City</h1>
-    <p>Crée ton compte pour sauvegarder ta partie en ligne, ou joue sans compte (sauvegarde sur cet appareil).</p>
-    <div id="account"><b>☁️ Compte joueur</b> <span id="accStatus">…</span>
-      <div id="accForm"><input id="accEmail" type="email" placeholder="e-mail" autocomplete="email"><input id="accPw" type="password" placeholder="mot de passe" autocomplete="current-password"><button id="accIn" class="btn">Connexion</button><button id="accUp" class="btn">Créer un compte</button></div>
-      <button id="accOut" class="btn" style="display:none">Déconnexion</button></div>
-    <div class="row"><button class="btn pri" id="accNext">Continuer ➜</button></div>
+<div id="start" style="display:flex">
+  <div class="scr on" id="scrTitle">
+    <div class="logo"><span>C</span><span>a</span><span>r</span><span>t</span><span>o</span><span>o</span><span>n</span><br><span>C</span><span>i</span><span>t</span><span>y</span></div>
+    <p class="tag">Vis ta vie dans la ville</p>
+    <button class="btn pri huge" id="titleGo">▶ Commencer</button>
   </div>
-  <div class="card scr" id="scrChar">
-    <h1>Ton personnage</h1>
-    <input id="charName" maxlength="18" placeholder="Prénom du personnage">
-    <div id="charGrid"></div>
-    <div class="row"><button class="btn" data-go="scrAcc">◀ Retour</button><button class="btn pri" id="charOk">Valider ➜</button></div>
+  <div class="card scr" id="scrAcc">
+    <h1 class="ct">Connexion</h1>
+    <p>Connecte-toi pour sauvegarder ta partie en ligne, ou joue sans compte (sauvegarde sur cet appareil).</p>
+    <div id="account"><span id="accStatus">…</span>
+      <div id="accForm"><input id="accEmail" type="email" placeholder="e-mail" autocomplete="email"><input id="accPw" type="password" placeholder="mot de passe" autocomplete="current-password"><button id="accIn" class="btn pri">Connexion</button><button id="accUp" class="btn">Créer un compte</button></div>
+      <button id="accOut" class="btn" style="display:none">Déconnexion</button></div>
+    <div class="row"><button class="btn" data-go="scrTitle">◀ Retour</button><button class="btn pri" id="accNext">Continuer ➜</button></div>
+  </div>
+  <div class="card scr" id="scrSex">
+    <h1 class="ct">Qui es-tu ?</h1>
+    <div class="sexrow"><button class="sexb" data-sex="h">👨<b>Homme</b></button><button class="sexb" data-sex="f">👩<b>Femme</b></button></div>
+    <input id="charName" maxlength="18" placeholder="Ton prénom">
+    <div class="row"><button class="btn" data-go="scrAcc">◀ Retour</button><button class="btn pri" id="sexOk">Continuer ➜</button></div>
+  </div>
+  <div class="card scr wide" id="scrBody">
+    <h1 class="ct">Ton corps</h1><p class="wait"></p>
+    <div id="bodyGrid" class="pgrid"></div>
+    <div class="row"><button class="btn" data-go="scrSex">◀ Retour</button><button class="btn pri" id="bodyOk">Continuer ➜</button></div>
+  </div>
+  <div class="card scr wide" id="scrStyle">
+    <h1 class="ct">Ton style</h1>
+    <div class="stylewrap"><div class="prev"><img id="charPrev"></div>
+      <div class="opts"><b>Tenue</b><div id="styleGrid" class="pgrid small"></div><div id="pals"></div></div></div>
+    <div class="row"><button class="btn" data-go="scrBody">◀ Retour</button><button class="btn pri" id="styleOk">✔ Terminer</button></div>
   </div>
   <div class="card scr" id="scrMenu">
-    <h1>Cartoon City</h1><p id="menuWho"></p>
+    <h1 class="ct">Cartoon City</h1><p id="menuWho"></p>
     <div class="col">
-      <button class="btn go big" onclick="startGame(false)">▶ Jouer solo</button>
+      <button class="btn go big pri" onclick="startGame(false)">▶ Jouer solo</button>
       <button class="btn big" id="btnOnline">🌐 Jouer en ligne</button>
-      <button class="btn big" data-go="scrSet">⚙️ Paramètres</button>
-      <button class="btn big" data-go="scrChar">🧍 Personnage</button>
+      <button class="btn big" id="btnSet">⚙️ Paramètres</button>
+      <button class="btn big" data-go="scrSex">🧍 Modifier mon personnage</button>
       <button class="btn big" onclick="startGame(true)">🎥 Visiter (caméra libre)</button>
       <button class="btn big" id="btnQuit">⏻ Quitter</button>
     </div>
   </div>
   <div class="card scr wide" id="scrSet">
-    <h1>Paramètres</h1>
+    <h1 class="ct">Paramètres</h1>
     <div class="tabs"><button class="btn on" data-tab="tKeys">⌨️ Touches</button><button class="btn" data-tab="tGfx">🖥️ Graphismes</button><button class="btn" data-tab="tSnd">🔊 Son</button></div>
     <div class="tab" id="tKeys"><p>Clique sur une touche puis appuie sur la nouvelle touche.</p><div id="keyList"></div><button class="btn" id="keyReset">Touches par défaut</button>
       <details><summary>Toutes les commandes</summary><table>
@@ -211,6 +248,7 @@
     <div class="tab" id="tSnd" style="display:none"><label>Volume général <input type="range" id="volAll" min="0" max="100" value="80"></label><p class="warn">Aucun son n’est fourni dans tes packs : le réglage est enregistré et s’appliquera dès que des sons seront ajoutés.</p></div>
     <div class="row"><button class="btn pri" id="setBack">◀ Retour</button></div>
   </div>
+  <div id="ld"><div><i id="ldBar"></i></div><span id="ldTxt">Chargement…</span></div>
 </div>
 <div id="pause"><div class="card"><h2>⏸ Pause</h2><button class="btn" id="pResume">▶ Reprendre</button><button class="btn" id="pSet">⚙️ Paramètres</button><button class="btn" id="pSave">💾 Sauvegarder</button><button class="btn" id="pMenu">🏠 Menu principal (sauvegarde)</button></div></div>
 <div id="hud">
