@@ -51,6 +51,9 @@
   #menu .qrow.dish span{min-width:0;white-space:normal;display:flex;flex-direction:column;line-height:1.2;color:#3a2a14}#menu .qrow.dish small{color:#8a6a3a;font-size:11px}#menu .qrow.dish em{font-style:normal;font-weight:800;color:#c0392b}
   #menu .qrow.dish button{width:34px;height:34px;border-radius:50%;font-size:18px;font-weight:800}
   #menu button.mimg{display:flex;align-items:center;gap:10px;text-align:left}#menu button.mimg img{width:40px;height:40px;object-fit:contain;background:#fff;border-radius:8px}#menu button.mimg i{font-style:normal;font-size:26px;width:40px;text-align:center}
+  @media (max-height:560px){#menu{top:6px!important;bottom:6px;transform:translateX(-50%)!important;max-height:none!important;width:min(980px,97vw)!important;padding:10px 12px!important}
+    #menu .dtabs{flex-wrap:nowrap!important;overflow-x:auto;gap:6px}#menu .dtabs button{white-space:nowrap;padding:6px 10px!important;font-size:13px!important}#menu>p{margin:4px 0!important;font-size:12px}
+    #menu .dgrid{flex:1 1 auto;min-height:0;max-height:none!important;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))!important}#menu .dcar img{height:64px!important;object-fit:contain}#menu .dcar ul{font-size:11px;margin:2px 0}#menu .dnav{padding:4px 0}#menu .mh b{font-size:16px}}
   #start .scr{display:none}#start .scr.on{display:block}
   #start .card.wide{max-width:620px}
   #start .col{display:flex;flex-direction:column;gap:10px;margin-top:8px}

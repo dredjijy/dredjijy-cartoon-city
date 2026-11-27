@@ -17,8 +17,8 @@ const Q = new URLSearchParams(location.search);
 // phones / tablets: lighter rendering so the city stays playable
 const MOBILE = !!Q.get('touch') || matchMedia('(pointer:coarse)').matches;
 // graphics quality: bas / moyen / haut (saved). Auto: mobile -> bas, small CPU -> moyen, otherwise haut, then adapted to the measured FPS
-const QSET = { bas: { dpr: 1, shadow: 1024, area: 80, shEvery: 4, lights: 1, ao: false, far: 230, fog: [90, 210], anim: 35, view: 200, detail: 70 },
-  moyen: { dpr: 1, shadow: 1024, area: 110, shEvery: 3, lights: 2, ao: false, far: 380, fog: [160, 360], anim: 60, view: 340, detail: 120 },
+const QSET = { bas: { dpr: 1, shadow: 1024, area: 50, shEvery: 1, lights: 1, ao: false, far: 230, fog: [90, 210], anim: 35, view: 200, detail: 65 },
+  moyen: { dpr: 1, shadow: 1024, area: 70, shEvery: 1, lights: 2, ao: false, far: 380, fog: [160, 360], anim: 60, view: 340, detail: 95 },
   haut: { dpr: 2, shadow: 4096, area: 260, shEvery: 1, lights: 6, ao: true, far: 3000, fog: [600, 1800], anim: 180, view: 1e9, detail: 260 } };
 let QUAL = Q.get('q') || (() => { try { return localStorage.getItem('cc_quality'); } catch (e) { return null; } })() || 'auto';
 const QAUTO = QUAL === 'auto';
@@ -458,7 +458,7 @@ function buildInstances() {
   if (!Q.get('nomerge')) for (const [key, b] of buckets) {
     if (b.mats.length === 0) continue; const parked = keep.has(key);
     const cast = !/Tile|Road|Grass|Base_Basket|Court|Kerb|Pebles|ParkRoad/.test(b.name);
-    const bs = proto[b.name].bb.getSize(tp), small = !parked && bs.y < 1.6 && Math.max(bs.x, bs.z) < 2.2 && !/Tile|Road|Kerb|ParkRoad|Grass/.test(b.name); // detail props: drawn only near the player
+    const bs = proto[b.name].bb.getSize(tp), small = parked || /^StreetTile/.test(b.name) || (bs.y < 1.6 && Math.max(bs.x, bs.z) < 2.2 && !/Tile|Road|Kerb|ParkRoad|Grass/.test(b.name)); // paving tiles: the block slab under them looks the same from afar // detail props: drawn only near the player
     for (const part of proto[b.name].parts) for (const bm of b.mats) {
       tp.setFromMatrixPosition(bm); if (bm.elements[0] === 0 && bm.elements[5] === 0) continue; // hidden instance
       mw.multiplyMatrices(bm, part.mtx);
@@ -470,7 +470,7 @@ function buildInstances() {
   for (const g of groups.values()) {
     for (let s = 0; s < g.items.length;) { // keep each merged mesh under ~1M vertices
       let nv = 0, e = s; while (e < g.items.length && nv < 1e6) { nv += g.items[e].geo.attributes.position.count; e++; }
-      const sl = g.items.slice(s, e), me = new THREE.Mesh(mergeStatic(sl), g.mat); if (g.small) me.userData.small = 1;
+      const sl = g.items.slice(s, e), me = new THREE.Mesh(mergeStatic(sl), g.mat); if (g.small) { me.userData.small = 1; }
       for (const it of sl) if (it.hk) (MRANGE[it.hk] || (MRANGE[it.hk] = [])).push([me, it.vo, it.vc]); me.castShadow = g.cast; me.receiveShadow = true; me.matrixAutoUpdate = false; me.updateMatrix();
       scene.add(me); CHUNKS.push(me); draws++; s = e;
     }
@@ -1000,7 +1000,7 @@ function updateCars(dt) {
   const fr2 = ((QS.view || 400) * 0.8) ** 2, cx0 = camera.position.x, cz0 = camera.position.z;
   for (const c of cars) {
     // far cars (not drawn): simulated 4x less often with the accumulated time
-    let dtc = dt; if ((c.obj.position.x - cx0) ** 2 + (c.obj.position.z - cz0) ** 2 > fr2 && !c.route) { c._a = (c._a || 0) + dt; c._i = (c._i || 0) + 1; if (c._i % 4) continue; dtc = Math.min(0.2, c._a); c._a = 0; }
+    let dtc = dt; if ((c.obj.position.x - cx0) ** 2 + (c.obj.position.z - cz0) ** 2 > fr2 && !c.route) { c._a = (c._a || 0) + dt; c._i = (c._i || 0) + 1; if (c._i % 12) continue; dtc = Math.min(0.6, c._a); c._a = 0; }
     // simple following: slow down if a car ahead on same lane
     let target = c.speed; const nb = near(c);
     if (c.mode === 'lane') {
@@ -3598,12 +3598,15 @@ function busBoard(st) {
   const ov = document.createElement('div'); ov.id = 'bigmap'; ov.innerHTML = '<div class="bmh"><b></b><button>✕</button></div><div class="busb"><canvas></canvas><ol></ol></div><p class="bmt"></p>';
   document.body.append(ov); UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock();
   ov.querySelector('b').innerHTML = '🚏 Arrêt <u>' + st.name + '</u> · <span style="color:' + col + '">' + Ln.name + '</span> · ticket ' + BUS_FARE + ' $';
-  ov.querySelector('.bmt').textContent = wait === null ? 'Aucun bus en service sur la ligne' : wait === 0 ? 'Le bus arrive — reste à l’arrêt' : 'Prochain bus dans ≈ ' + Math.max(1, Math.round(wait * 1.5)) + ' min (' + wait + ' arrêt' + (wait > 1 ? 's' : '') + ')';
+  // live countdown: distance the next bus still has to drive along the line (stop to stop) at its cruising speed, plus the stops it serves on the way
+  const eta = () => { let best = null; for (const b of buses) { if (b.line !== st.line) continue; if (busAtStop(st) === b) return 0; const nx = nextStopOf(b); if (!nx) continue; let i = idxOf(nx), dist = Math.hypot(b.obj.position.x - nx.pos.x, b.obj.position.z - nx.pos.z), stopsN = 0; while (i !== i0 && stopsN < n) { const a = stops[i], c = stops[(i + 1) % n]; dist += Math.hypot(a.pos.x - c.pos.x, a.pos.z - c.pos.z) * 1.25; i = (i + 1) % n; stopsN++; } const s = dist / 7.5 + stopsN * 6; if (best === null || s < best) best = s; } return best; };
+  const tick = () => { if (!ov.isConnected) return clearInterval(iv); const s = eta(); ov.querySelector('.bmt').textContent = s === null ? 'Aucun bus en service sur la ligne' : s < 3 ? '🚌 Le bus arrive — reste à l’arrêt' : '🚌 Prochain bus dans ' + Math.floor(s / 60) + ' min ' + String(Math.round(s % 60)).padStart(2, '0') + ' s'; };
+  const iv = setInterval(tick, 1000); tick();
   const c = ov.querySelector('canvas'), S = Math.min(innerWidth - 360, innerHeight - 140, 640); c.width = c.height = Math.max(240, S); const k = c.width / (2 * HALF);
   const g = c.getContext('2d'); g.drawImage(hud.mm, 0, 0, c.width, c.width); g.globalAlpha = 0.35; for (const o of BUS_LINES) { if (o === Ln) continue; } g.globalAlpha = 1; drawBusOnMap(g, k);
   g.strokeStyle = col; g.lineWidth = 6; g.beginPath(); Ln.nodes.forEach(([a, b], q) => { const x = (lineX(a) + HALF) * k, z = (lineX(b) + HALF) * k; q ? g.lineTo(x, z) : g.moveTo(x, z); }); g.closePath(); g.stroke();
   stops.forEach(s => { const x = (s.pos.x + HALF) * k, z = (s.pos.z + HALF) * k; g.fillStyle = s === st ? '#ffeb3b' : '#fff'; g.beginPath(); g.arc(x, z, s === st ? 7 : 4, 0, 7); g.fill(); g.font = 'bold 11px sans-serif'; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3; g.strokeText(s.name, x + 7, z + 4); g.fillText(s.name, x + 7, z + 4); });
-  g.fillStyle = '#fff'; g.beginPath(); g.arc((player.pos.x + HALF) * k, (player.pos.z + HALF) * k, 5, 0, 7); g.fill();
+  { const px = (player.pos.x + HALF) * k, pz = (player.pos.z + HALF) * k; g.fillStyle = 'rgba(255,82,82,.35)'; g.beginPath(); g.arc(px, pz, 16, 0, 7); g.fill(); g.fillStyle = '#ff5252'; g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(px, pz, 8, 0, 7); g.fill(); g.stroke(); g.font = 'bold 14px sans-serif'; g.lineWidth = 4; g.strokeStyle = '#000'; g.strokeText('📍 Tu es ici', px + 12, pz - 10); g.fillStyle = '#fff'; g.fillText('📍 Tu es ici', px + 12, pz - 10); }
   const ol = ov.querySelector('ol');
   for (let q = 0; q < n; q++) { const s = stops[(i0 + q) % n], li = document.createElement('li'); li.innerHTML = (q === 0 ? '<b>● ' + s.name + ' (ici)</b>' : s.name + ' <i>+' + Math.round(q * 1.5) + ' min</i>'); if (q) li.onclick = () => { close(); gpsSet(s.pos.x, s.pos.z, '🚏 Arrêt ' + s.name); }; ol.append(li); }
   const close = () => { ov.remove(); UI.open = false; };
@@ -4218,9 +4221,9 @@ const PLANT = (size, x, z) => iput(pickExisting(X2_PLANTS.filter(n => n.includes
 function labelAt(text, x, z, rot = 0) { const s = textPlaque(text, '#1d4ed8', 1.4); s.position.set(curRoom.ox + x, 2.25, curRoom.oz + z); s.rotation.y = rot; curRoom.group.add(s); }
 const H = (n, x, z, rot = 0, y = 0, col = true) => iput('H_' + n, x, z, rot, y, col);
 // 17.5 x 15 m plan: hall in the middle, rooms on the back row and on both sides
-function planShell(floor, wall, D = 6) {
+function planShell(floor, wall, D = 6, W = 7) {
   curRoom.wallName = wall || pickExisting(IW);
-  shell(7, D, floor || pickExisting(['I_Floor_08', 'I_Floor_12', 'I_Floor_03']), curRoom.wallName, 3);
+  shell(W, D, floor || pickExisting(['I_Floor_08', 'I_Floor_12', 'I_Floor_03']), curRoom.wallName, Math.floor(W / 2));
   curRoom.hallBox = [6.2, 11.3, 9.4, D * 2.5 - 2.2];
 }
 function waitingArea(z = 11.6) {
@@ -4259,27 +4262,27 @@ function buildHospital() {
 
 // ---- CAR DEALERSHIP (plan: Vente, Financement, Direction, Atelier + showroom with cars and lounge)
 function buildConcession() {
-  planShell('I_Floor_12', 'I_Wall_02');
-  partition('x', 5, 0, 2, [1]); partition('z', 5, 0, 2, []); partition('x', 5, 5, 7, [5]); partition('z', 12.5, 0, 2, []);
+  // big showroom: 22.5 x 25 m, offices at the back, 8 vehicles of different kinds on the floor, lounge in the middle
+  planShell('I_Floor_12', 'I_Wall_02', 10, 9);
+  partition('x', 5, 0, 2, [1]); partition('z', 5, 0, 2, []); partition('x', 5, 7, 9, [7]); partition('z', 17.5, 0, 2, []);
   labelAt('Vente', 2.5, 0.3); OFFICE(2.5, 2.0); iput('I_Library', 0.3, 2.4, Math.PI / 2); roomNPC(2.5, 2.8, 'Idle_B-loop', Math.PI);
-  labelAt('Direction / Financement', 15, 0.3); OFFICE(15.0, 2.0); iput('I_Library', 17.2, 2.4, -Math.PI / 2); PLANT('medium', 13.2, 0.6); roomNPC(15.0, 2.8, 'Idle_B-loop', Math.PI);
-  labelAt('🚗 Concession', 8.75, 0.3); counter(8.75, 2.6, 3); roomNPC(8.75, 1.9, 'Idle_A-loop', 0);
-  // showroom: the cars on sale, each on its spot
-  // showroom: four cars of the Lowpoly Vehicle Mega Pack catalogue (textured), loaded on demand
-  const R0 = curRoom, picks = VCAT.filter(v => v.cat === 'car' && !v.business).sort((a, b) => a.price - b.price).filter((v, i, A) => i % Math.max(1, Math.floor(A.length / 4)) === 0).slice(0, 4);
-  Promise.all(picks.map(v => loadVeh(v.n))).then(() => [[2.6, 8.0, 0.6], [2.6, 12.6, 0.6], [14.9, 8.0, -0.6], [14.9, 12.6, -0.6]].forEach(([x, z, r], i) => {
-    const v = picks[i]; if (!v || !proto['V_' + v.n]) return; const o = makeObject('V_' + v.n); o.position.set(R0.ox + x, 0.24, R0.oz + z); o.rotation.y = r; R0.group.add(o);
-    const tag = textPlaque(v.name || v.n.replace(/_/g, ' ') + ' · ' + v.price + ' $', '#c62828', 2.2); R0.group.remove(tag); scene.remove(tag); tag.position.set(R0.ox + x, 2.3, R0.oz + z); R0.group.add(tag);
+  labelAt('Direction / Financement', 20, 0.3); OFFICE(20.0, 2.0); iput('I_Library', 22.2, 2.4, -Math.PI / 2); PLANT('medium', 18.2, 0.6); roomNPC(20.0, 2.8, 'Idle_B-loop', Math.PI);
+  labelAt('🚗 Concession', 11.25, 0.3); counter(11.25, 2.6, 3); roomNPC(11.25, 1.9, 'Idle_A-loop', 0);
+  const R0 = curRoom, pick3 = (cat, n, biz) => { const L2 = VCAT.filter(v => v.cat === cat && (biz || !v.business)).sort((a, b) => a.price - b.price); return Array.from({ length: Math.min(n, L2.length) }, (_, k) => L2[Math.floor((k + 0.5) * L2.length / n)]); };
+  const picks = [...pick3('car', 3), ...pick3('race', 2), ...pick3('bike', 2), ...pick3('emergency', 1, true)];
+  const spots = [[3.4, 8.5, 0.7], [3.4, 14.0, 0.7], [3.4, 19.5, 0.7], [18.9, 8.5, -0.7], [18.9, 14.0, -0.7], [18.4, 19.2, -0.5], [7.6, 20.5, 0.2], [14.9, 20.5, -0.2]];
+  // bikes on the two front spots (short), the rest in order
+  const order = [picks[0], picks[1], picks[2], picks[3], picks[4], picks[7], picks[5], picks[6]];
+  spots.forEach(([x, z, r], i) => { const v = order[i]; const big = v && v.cat !== 'bike'; R0.cols.push([R0.ox + x - (big ? 1.4 : 0.6), R0.oz + z - (big ? 2.3 : 1.1), R0.ox + x + (big ? 1.4 : 0.6), R0.oz + z + (big ? 2.3 : 1.1)]); });
+  Promise.all(order.filter(Boolean).map(v => loadVeh(v.n))).then(() => spots.forEach(([x, z, r], i) => {
+    const v = order[i]; if (!v || !proto['V_' + v.n]) return; const o = makeObject('V_' + v.n); o.position.set(R0.ox + x, 0.24, R0.oz + z); o.rotation.y = r; R0.group.add(o);
+    const tag = textPlaque(v.n.replace(/_/g, ' ') + ' · ' + v.price.toLocaleString('fr-FR') + ' $' + (v.business ? ' · pro' : ''), v.business ? '#455a64' : '#c62828', 2.4); scene.remove(tag); tag.position.set(R0.ox + x, 2.4, R0.oz + z); R0.group.add(tag);
   }));
-  [[2.6, 8.0, 0.6], [2.6, 12.6, 0.6], [14.9, 8.0, -0.6], [14.9, 12.6, -0.6]].forEach(([x, z, r], i) => {
-    if (true) { curRoom.cols.push([curRoom.ox + x - 1.4, curRoom.oz + z - 2.2, curRoom.ox + x + 1.4, curRoom.oz + z + 2.2]); return; }
-    const n = null; const o = makeObject(n); o.position.set(curRoom.ox + x, 0.24, curRoom.oz + z); o.rotation.y = r; curRoom.group.add(o);
-    curRoom.cols.push([curRoom.ox + x - 1.4, curRoom.oz + z - 2.2, curRoom.ox + x + 1.4, curRoom.oz + z + 2.2]);
-  });
-  // lounge in the middle
-  iput(pickExisting(['I_Catpet_01', 'I_Catpet_02']), 8.75, 10.0, 0, 0.01, false); for (const [x, z, r] of [[7.6, 9.2, Math.PI / 4], [9.9, 9.2, -Math.PI / 4], [7.6, 10.9, 3 * Math.PI / 4], [9.9, 10.9, -3 * Math.PI / 4]]) iput(pickExisting(['I_Sofa_06', 'I_Sofa_08', 'I_Sofa_04']), x, z, r);
-  iput('I_RoomTable_01', 8.75, 10.0); PLANT('large', 5.6, 14.2); PLANT('large', 11.9, 14.2); PLANT('medium', 5.6, 5.6); PLANT('medium', 11.9, 5.6);
-  curRoom.hallBox = [6.0, 11.5, 12.4, 13.4];
+  // lounge in the middle, armchairs spaced around the low table
+  iput(pickExisting(['I_Catpet_01', 'I_Catpet_02']), 11.25, 13.5, 0, 0.01, false);
+  for (const [x, z, r] of [[9.6, 12.0, Math.PI / 4], [12.9, 12.0, -Math.PI / 4], [9.6, 15.0, 3 * Math.PI / 4], [12.9, 15.0, -3 * Math.PI / 4]]) iput(pickExisting(['I_Sofa_06', 'I_Sofa_08', 'I_Sofa_04']), x, z, r);
+  iput('I_RoomTable_01', 11.25, 13.5); PLANT('large', 6.6, 23.6); PLANT('large', 15.9, 23.6); PLANT('medium', 6.6, 6.0); PLANT('medium', 15.9, 6.0);
+  curRoom.hallBox = [8.0, 14.5, 17.0, 22.5];
 }
 
 // ---- COMPANY OFFICES (plan: open space, salle de réunion, direction, bureaux, cafétéria, toilettes)
@@ -4583,7 +4586,7 @@ function animLOD(dt) {
 }
 const FPS = { t: 0, n: 0, low: 0, done: false };
 // dynamic resolution: the render scale follows the frame rate (sharp whenever the device can, never lowers lighting or models)
-const DYN = { t: 0, n: 0, s: 0, max: Math.min(devicePixelRatio || 1, MOBILE ? 2 : 2), min: 0.7, fps: 0, ms: 0, worst: 0 };
+const DYN = { js: 0, rd: 0, t: 0, n: 0, s: 0, max: Math.min(devicePixelRatio || 1, MOBILE ? 2 : 2), min: 0.7, fps: 0, ms: 0, worst: 0 };
 function dynRes(dt) {
   DYN.t += dt; DYN.n++; DYN.worst = Math.max(DYN.worst, dt);
   if (DYN.t < 1) return; const fps = DYN.n / DYN.t; DYN.fps = fps; DYN.ms = DYN.t / DYN.n * 1000; DYN.t = 0; DYN.n = 0;
@@ -4592,8 +4595,8 @@ function dynRes(dt) {
   if (mode === 'auto') { if (fps < 50) s = Math.max(DYN.min, s - (fps < 35 ? 0.15 : 0.08)); else if (fps > 58 && s < DYN.max) s = Math.min(DYN.max, s + 0.05); }
   else s = Math.min(DYN.max, +mode * (devicePixelRatio || 1));
   if (Math.abs(s - renderer.getPixelRatio()) > 0.02) { renderer.setPixelRatio(s); renderer.setSize(innerWidth, innerHeight); } DYN.s = s;
-  const f = document.getElementById('fps'); if (f && f.style.display !== 'none') { f.textContent = Math.round(fps) + ' FPS · ' + DYN.ms.toFixed(1) + ' ms (pire ' + (DYN.worst * 1000).toFixed(0) + ') · résolution ' + Math.round(s / (devicePixelRatio || 1) * 100) + ' % · ' + renderer.info.render.calls + ' appels · ' + (renderer.info.render.triangles / 1e6).toFixed(1) + ' M tri · ' + QUAL; }
-  DYN.worst = 0;
+  const f = document.getElementById('fps'); if (f && f.style.display !== 'none') { f.textContent = Math.round(fps) + ' FPS · ' + DYN.ms.toFixed(1) + ' ms (pire ' + (DYN.worst * 1000).toFixed(0) + ') · JS ' + (DYN.js / Math.max(1, fps)).toFixed(1) + ' · rendu ' + (DYN.rd / Math.max(1, fps)).toFixed(1) + ' · résolution ' + Math.round(s / (devicePixelRatio || 1) * 100) + ' % · ' + renderer.info.render.calls + ' appels · ' + (renderer.info.render.triangles / 1e6).toFixed(1) + ' M tri · ' + QUAL; }
+  DYN.worst = 0; DYN.js = 0; DYN.rd = 0;
 }
 function adaptQuality(dt) {
   dynRes(dt);
@@ -5150,6 +5153,7 @@ function updateShadowCam() {
   sun.position.copy(controls.target).addScaledVector(SUN_DIR, 400);
 }
 function frame() {
+  const T0 = performance.now();
   const dt = Math.min(0.05, clock.getDelta()); const t = clock.elapsedTime;
   if (window.PAUSED) { renderer.render(scene, camera); return; }
   updateSignals(dt);
@@ -5162,7 +5166,9 @@ function frame() {
   if (!SHOT) { shFrame++; renderer.shadowMap.autoUpdate = false; if (shFrame % QS.shEvery === 0) renderer.shadowMap.needsUpdate = true; adaptQuality(dt); }
   updateRiders(); updateWheels(dt); updateActors(dt); if (game.on) updatePedLife(dt);
   updateShadowCam();
+  const T1 = performance.now();
   if (useAO) composer.render(); else renderer.render(scene, camera);
+  const T2 = performance.now(); DYN.js += T1 - T0; DYN.rd += T2 - T1;
 }
 function start() {
   setupPost();
@@ -5322,6 +5328,13 @@ function start() {
         const d = doors.find(d => d.type === 'resto'); window.PENDING = (async () => { await enterDoor(d); const s = inside.room.seats && inside.room.seats[0]; if (s) tableUI(s); })();
       } else if (auto === 'svcfit') {
         const r = {}; for (const d of doors) if (d.service) (r[d.service] = r[d.service] || []).push(Math.round(d.bld.h)); console.log('SVCFIT ' + JSON.stringify(r) + ' types ' + JSON.stringify(doors.reduce((a, d) => (a[d.type] = (a[d.type] || 0) + 1, a), {})));
+      } else if (auto === 'tris') {
+        const tri = n => proto[n].parts.reduce((s, p) => s + (p.geo.index ? p.geo.index.count : p.geo.attributes.position.count) / 3, 0);
+        const agg = {}; for (const b of buckets.values()) { const k = b.name.replace(/_[A-Z0-9]+$/, ''); const e = agg[k] || (agg[k] = { n: 0, per: tri(b.name), tot: 0 }); e.n += b.mats.length; e.tot += b.mats.length * tri(b.name); }
+        const top = Object.entries(agg).sort((a, b) => b[1].tot - a[1].tot).slice(0, 30).map(([k, e]) => k + ':' + Math.round(e.per) + 'x' + e.n + '=' + Math.round(e.tot / 1000) + 'k');
+        console.log('TRIS total=' + Math.round(Object.values(agg).reduce((s, e) => s + e.tot, 0) / 1e6 * 10) / 10 + 'M ' + top.join(' '));
+        const ch = Object.keys(skinned)[0]; let st = 0; skinned[ch].traverse(o => { if (o.isMesh) st += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); const cr = cars[0] && cars[0].obj; let ct = 0; cr && cr.traverse(o => { if (o.isMesh) ct += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+        console.log('TRIS char=' + st + ' car=' + ct + ' peds=' + peds.length + ' cars=' + cars.length);
       } else if (auto === 'lotview') {
         const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
@@ -5378,7 +5391,7 @@ function start() {
         const s = signals[+(Q.get('n') || 0) * 3]; const inter = s.inter; setFreeCam(true); camera.position.set(inter.x + 9, 4.5, inter.z + 9); controls.target.set(inter.x, 3.4, inter.z); controls.update();
       } else if (auto === 'flat') {
         const d = Q.get('k') ? (Q.get('k') === 'resto' ? doors.find(d => d.type === 'resto') : doors.find(d => d.service === Q.get('k') || d.type === Q.get('k'))) : doors.filter(d => d.type === 'appart')[3]; d._viaLobby = true;
-        window.PENDING = (async () => { await enterDoor(d); const r = inside.room; for (let i = 0; i < +(Q.get('n') || 40); i++) step(); setFreeCam(true); camera.position.set(r.ox + r.w / 2, r.d * 1.45, r.oz + r.d * 1.35); controls.target.set(r.ox + r.w / 2, 0, r.oz + r.d * 0.45); controls.update(); console.log('FLAT ' + actors.length + ' ' + actors.map(a => a.state + a.i).join(',')); })().catch(e => console.log('ERR ' + e.stack));
+        window.PENDING = (async () => { await enterDoor(d); const r = inside.room; for (let i = 0; i < +(Q.get('n') || 40); i++) step(); setFreeCam(true); camera.position.set(r.ox + r.w / 2, Math.max(r.d, r.w) * 1.3, r.oz + r.d * 1.35); controls.target.set(r.ox + r.w / 2, 0, r.oz + r.d * 0.45); controls.update(); console.log('FLAT ' + actors.length + ' ' + actors.map(a => a.state + a.i).join(',')); })().catch(e => console.log('ERR ' + e.stack));
       } else if (auto === 'audit') {
         const isB = (n) => placed.some(p => p.nm === n);
         let ov = []; for (let a = 0; a < placed.length; a++) for (let b = a + 1; b < placed.length; b++) { const A = placed[a], B = placed[b]; const ix = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0), iz = Math.min(A.z1, B.z1) - Math.max(A.z0, B.z0); if (ix > 0.3 && iz > 0.3) ov.push([A.nm, B.nm, +ix.toFixed(1), +iz.toFixed(1)]); }
@@ -5390,7 +5403,7 @@ function start() {
         const show = async (k) => {
           if (inside) exitInterior && exitInterior();
           const d = k === 'resto' ? doors.find(d => d.type === 'resto') : k === 'hopital' ? hospitalDoor() : k === 'lobby' ? lobbyFor(doors.find(d => d.type === 'appart')) : k === 'appart' ? Object.assign(doors.filter(d => d.type === 'appart')[5], { _viaLobby: true }) : doors.find(d => d.service === k || d.type === k);
-          await enterDoor(d); const r = inside.room; setFreeCam(true); camera.position.set(r.ox + r.w / 2, r.d * 1.45, r.oz + r.d * 1.35); controls.target.set(r.ox + r.w / 2, 0, r.oz + r.d * 0.45); controls.update(); console.log('TOUR ' + k + ' -> ' + (inside && (inside.door.service || inside.door.type)) + ' ox=' + r.ox);
+          await enterDoor(d); const r = inside.room; setFreeCam(true); camera.position.set(r.ox + r.w / 2, Math.max(r.d, r.w) * 1.3, r.oz + r.d * 1.35); controls.target.set(r.ox + r.w / 2, 0, r.oz + r.d * 0.45); controls.update(); console.log('TOUR ' + k + ' -> ' + (inside && (inside.door.service || inside.door.type)) + ' ox=' + r.ox);
         };
         let qi = 0; window.PENDING = show(kinds[qi++]);
         const nx = () => { show(kinds[qi++]).then(() => { if (qi >= kinds.length) window.NEXT = null; setTimeout(() => { window.DONE = 1; }, 2500); }).catch(e => { console.log('ERR ' + e.stack); window.DONE = 1; }); };
