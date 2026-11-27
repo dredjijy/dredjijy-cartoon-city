@@ -290,7 +290,7 @@ const buckets = new Map(); // key -> {name, mats:[]}
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 const PUTLOG = [];
 const VARF = [[/^Tree_A_\d$/, /^Tree_[A-F]_\d_?$/], [/^Bush_1_A_\d$/, /^Bush_1_[ABC]_\d$/], [/^Bush_2_A_\d$/, /^Bush_2_[AB]_\d$/], [/^Flowers_\d_A$/, /^Flowers?_\d_[A-G]$/], [/^Grass_A_1$/, /^Grass_[A-E]_\d_?$/], [/^Pebles_1_A_1$/, /^Pebles_1_[A-E]_\d_?$/], [/^Rock_\d_A$/, /^Rock(Formation)?_\d(_A)?$/], [/^Plant_\d_A_1$/, /^Plant_\d_[ABC]_\d$/], [/^PlantPot_1_A$/, /^PlantPot_\d_[A-F]$/], [/^BushPot_1_A$/, /^BushPot_1_[A-E]$/],
-  [/^Bench_4_A$/, /^Bench_4_[A-D]$/], [/^Bench_2_A$/, /^Bench_[23]_[AB]$/], [/^PostBox_\d_A$/, /^PostBox_\d_[A-F]$/], [/^Trashbin_1_A$/, /^Trashbin_1_[A-D]$/], [/^Kiosk_1_A$/, /^Kiosk_1_[A-E]$/], [/^FoodCart_1_A$/, /^FoodCart_1_[A-E]$/], [/^Parasol_1_A$/, /^Parasol_1_[A-F]$/], [/^Table_1_A$/, /^Table_1_[A-H]$/], [/^Chair_1_A$/, /^Chair_[123]_[A-G]$/], [/^Cone_1$/, /^Cone_[12]$/], [/^Barier_4_A$/, /^Barier_4_[A-E]$/], [/^StreetLamp_3_A$/, /^StreetLamp_3_[A-D]$/],
+  [/^Bench_4_A$/, /^Bench_4_[A-D]$/], [/^Bench_2_A$/, /^Bench_[23]_[AB]$/], [/^PostBox_\d_A$/, /^PostBox_\d_[A-F]$/], [/^Trashbin_1_A$/, /^Trashbin_1_[A-D]$/], [/^Kiosk_1_A$/, /^Kiosk_1_[A-E]$/], [/^FoodCart_1_A$/, /^FoodCart_1_[A-E]$/], [/^Parasol_1_A$/, /^Parasol_1_[A-F]$/], [/^Table_1_A$/, /^Table_1_[A-D]$/], [/^Chair_1_A$/, /^Chair_1_[A-G]$/], [/^Cone_1$/, /^Cone_[12]$/], [/^Barier_4_A$/, /^Barier_4_[A-E]$/], [/^StreetLamp_3_A$/, /^StreetLamp_3_[A-D]$/],
   [/^GasTank_\d_A$/, /^GasTank_\d_[A-H]$/], [/^Building_Factory_(\d)_A$/, null], [/^Basketball_Court_1$/, /^Basketball_Court_\d$/], [/^Basketball_Stand_A$/, /^Basketball_Stand_[A-F]$/], [/^Base_Basket_A$/, /^Base_Basket_[A-D]$/], [/^Lamp_Court_1_A$/, /^Lamp_Court_1_[A-G]$/], [/^Bilboard_2_A$/, /^Bilboard_[12]_[A-C]$/], [/^PizzaSign_1_A$/, /^PizzaSign_\d_[AB]$/], [/^BurgerSign_1$/, /^BurgerSign_(1|\d_[A-D])$/], [/^Fountain_1_A$/, /^Fountain_1_[AB]$/]];
 const VARC = {};
 function variantOf(name, x, z) {
@@ -1247,9 +1247,9 @@ async function main() {
   initDayNight();
   initPlayer(); initHud(); initMissions(); initPaidZone(); initPhone(); initTouchUI(); loadVCat(); if (!SHOT) loadGame();
   if (SHOT || Q.get('dev')) document.body.classList.add('dev');
-  if (!SHOT) onWorldReady();
   setPreset(SHOT && SHOT !== 'play' ? SHOT : 'overview');
   start();
+  if (!SHOT) onWorldReady();
 }
 
 // ================================================================ GAMEPLAY
@@ -1634,7 +1634,7 @@ window.startGame = (free) => {
   document.getElementById('start').style.display = 'none'; document.body.classList.remove('menu');
   document.getElementById('hud').style.display = 'block';
   if (!SHOT) { let f = document.getElementById('fadein'); if (!f) { f = document.createElement('div'); f.id = 'fadein'; document.body.append(f); } f.style.transition = 'none'; f.style.opacity = 1; requestAnimationFrame(() => { f.style.transition = 'opacity 1s'; f.style.opacity = 0; }); if (CHAR && player.ch) banner('👋 Bienvenue ' + CHAR.name + ' !', 2500); }
-  game.on = true; game.started = true; document.getElementById('pause').classList.remove('on'); window.PAUSED = false;
+  game.on = true; game.started = true; window.__started = 1; document.getElementById('pause').classList.remove('on'); window.PAUSED = false;
   setFreeCam(!!free);
   if (free) setPreset('overview');
 };
@@ -1923,17 +1923,22 @@ function fillKeys() {
     L2.append(Object.assign(document.createElement('span'), { textContent: lab }), b);
   }
 }
+function goFull() { if (!MOBILE) return; const el = document.documentElement; try { const p = (el.requestFullscreen || el.webkitRequestFullscreen || (() => null)).call(el); const lock = () => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) {} }; if (p && p.then) p.then(lock).catch(lock); else lock(); } catch (e) {} }
+let PLAY_FREE;
+function playFlow(free) { goFull(); if (!CHAR && !free) { PLAY_FREE = free; DRAFT = DRAFT || { sex: 'h', colors: {} }; showScr('scrSex'); return; } goLoad(free); }
+const TIPS = ['Astuce : le téléphone (bouton jaune) contient la carte, le GPS et le taxi', 'Astuce : gare-toi dans une place ou un parking, sinon c’est la fourrière', 'Astuce : E pour entrer dans les bâtiments et parler aux guichets', 'Astuce : mange, bois et dors pour garder ta santé'];
+function goLoad(free) { showScr('scrLoad'); document.body.classList.add('loading'); document.getElementById('loadTip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)]; setTimeout(() => launch(free), WORLD_READY ? 900 : 0); }
 function launch(free) {
   if (!WORLD_READY) { const t = document.getElementById('ldTxt'); if (t) t.textContent = '⏳ Encore un instant, la ville finit de charger… ' + Math.round(LOADP) + ' %'; LAUNCH_WAIT = free; return; }
-  window.startGame(free);
+  document.body.classList.remove('loading'); window.startGame(free);
 }
 let LAUNCH_WAIT = undefined;
 function initMenuEarly() {
   if (SHOT) { document.getElementById('start').style.display = 'none'; document.body.classList.remove('menu'); return; }
   document.querySelectorAll('#start [data-go]').forEach(b => b.onclick = () => showScr(b.dataset.go));
   document.querySelectorAll('#start [data-tab]').forEach(b => b.onclick = () => { document.querySelectorAll('#start [data-tab]').forEach(q => q.classList.toggle('on', q === b)); document.querySelectorAll('#start .tab').forEach(t => t.style.display = t.id === b.dataset.tab ? 'block' : 'none'); });
-  document.getElementById('titleGo').onclick = () => showScr('scrAcc');
-  document.getElementById('accNext').onclick = () => showScr(CHAR ? 'scrMenu' : 'scrSex');
+  document.getElementById('titleGo').onclick = () => { goFull(); showScr('scrAcc'); };
+  document.getElementById('accNext').onclick = () => showScr('scrMenu');
   document.querySelectorAll('.sexb').forEach(b => b.onclick = () => { document.querySelectorAll('.sexb').forEach(q => q.classList.toggle('sel', q === b)); DRAFT.sex = b.dataset.sex; });
   document.querySelector('#scrMenu [data-go="scrSex"]').onclick = () => { DRAFT = JSON.parse(JSON.stringify(CHAR || {})); showScr('scrSex'); syncSex(); };
   const syncSex = () => { DRAFT = DRAFT || { sex: 'h', colors: {} }; document.querySelectorAll('.sexb').forEach(q => q.classList.toggle('sel', q.dataset.sex === DRAFT.sex)); document.getElementById('charName').value = DRAFT.name || ''; };
@@ -1943,17 +1948,17 @@ function initMenuEarly() {
   document.getElementById('styleOk').onclick = () => {
     if (!DRAFT.model) return; const first = !CHAR; CHAR = JSON.parse(JSON.stringify(DRAFT)); localStorage.setItem('cc_char', JSON.stringify(CHAR));
     if (WORLD_READY) setPlayerModel(CHAR.model, CHAR.colors);
-    if (first) launch(false); else showScr('scrMenu');
+    if (PLAY_FREE !== undefined || first) { const f = !!PLAY_FREE; PLAY_FREE = undefined; goLoad(f); } else showScr('scrMenu');
   };
   document.getElementById('btnSet').onclick = () => { setReturn = 'scrMenu'; showScr('scrSet'); };
   document.getElementById('setBack').onclick = () => { if (setReturn === 'pause') { document.getElementById('start').style.display = 'none'; document.getElementById('pause').classList.add('on'); window.PAUSED = true; } else showScr(setReturn); };
   document.getElementById('keyReset').onclick = () => { KEYMAP = {}; localStorage.removeItem('cc_keys'); fillKeys(); };
   const vol = document.getElementById('volAll'); vol.value = localStorage.getItem('cc_vol') || 80; vol.oninput = () => localStorage.setItem('cc_vol', vol.value);
-  document.querySelector('#scrMenu .btn.go').onclick = () => launch(false);
-  document.querySelector('#scrMenu [onclick="startGame(true)"]').onclick = () => launch(true);
+  document.querySelector('#scrMenu .btn.go').onclick = () => playFlow(false);
+  document.querySelector('#scrMenu [onclick="startGame(true)"]').onclick = () => playFlow(true);
   document.getElementById('btnOnline').onclick = () => {
     if (!sbUser) { showScr('scrAcc'); document.getElementById('accStatus').textContent = 'Connecte-toi (ou crée un compte) pour jouer en ligne'; return; }
-    launch(false); setTimeout(() => game.on && banner('🌐 En ligne : ta partie est synchronisée sur ton compte', 3000), 500);
+    playFlow(false); setTimeout(() => game.on && banner('🌐 En ligne : ta partie est synchronisée sur ton compte', 3000), 500);
   };
   document.getElementById('btnQuit').onclick = () => { if (game.started) saveGame(true); try { window.close(); } catch (e) {} document.getElementById('menuWho').textContent = '💾 Partie sauvegardée — tu peux fermer cet onglet.'; };
   document.getElementById('pResume').onclick = () => { document.getElementById('pause').classList.remove('on'); window.PAUSED = false; };
@@ -1972,8 +1977,9 @@ function initMenuEarly() {
 function onWorldReady() {
   WORLD_READY = true; loadProgress(100, 'Ville prête'); const ld = document.getElementById('ld'); if (ld) setTimeout(() => ld.classList.add('done'), 800);
   if (CHAR && CHAR.model) setPlayerModel(CHAR.model, CHAR.colors);
-  if (LAUNCH_WAIT !== undefined) { const f = LAUNCH_WAIT; LAUNCH_WAIT = undefined; window.startGame(f); }
+  if (LAUNCH_WAIT !== undefined) { const f = LAUNCH_WAIT; LAUNCH_WAIT = undefined; setTimeout(() => { document.body.classList.remove('loading'); window.startGame(f); }, 600); }
 }
+window.player_dbg = () => ({ pos: player.pos.toArray().map(v => +v.toFixed(1)), cam: camera.position.toArray().map(v => +v.toFixed(1)), yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, free: game.freeCam, inside: !!inside, dpr: renderer.getPixelRatio() });
 function togglePause() { const p = document.getElementById('pause'); const on = !p.classList.contains('on'); p.classList.toggle('on', on); window.PAUSED = on; if (on) { keys.clear(); if (document.pointerLockElement) document.exitPointerLock(); } }
 // ---- job building block (placed on a city block)
 const jobLots = [];
@@ -4055,6 +4061,7 @@ function counterMenu(door) {
   if (k === 'police') return openMenu('🚓 Commissariat — accueil', [
     { sep: 'Amendes impayées : ' + L.fines + ' $' + (L.fines >= FINE_LIMIT ? ' — au-delà de ' + FINE_LIMIT + ' $, retenue automatique sur tes salaires' : '') },
     { t: 'Payer mes amendes', dis: !L.fines, fn: () => { if (payMoney(L.fines)) { L.fines = 0; banner('Amendes payées', 1200); } } },
+    ...impoundRows(door),
   ]);
   if (!door.service) { if (k === 'epicerie') return serviceMenu({ ...door, service: 'supermarche' }); return openMenu('🧸 Caisse', [{ sep: 'Les articles se prennent directement sur les étagères (E) et sont payés à ce moment-là.' }]); }
   return serviceMenu(door);
@@ -4214,9 +4221,15 @@ function buildConcession() {
   labelAt('Direction / Financement', 15, 0.3); OFFICE(15.0, 2.0); iput('I_Library', 17.2, 2.4, -Math.PI / 2); PLANT('medium', 13.2, 0.6); roomNPC(15.0, 2.8, 'Idle_B-loop', Math.PI);
   labelAt('🚗 Concession', 8.75, 0.3); counter(8.75, 2.6, 3); roomNPC(8.75, 1.9, 'Idle_A-loop', 0);
   // showroom: the cars on sale, each on its spot
-  const show = DEALER.map(v => v[0]).filter(n => proto[n] && !TWO_WHEEL.test(n)).slice(0, 4);
+  // showroom: four cars of the Lowpoly Vehicle Mega Pack catalogue (textured), loaded on demand
+  const R0 = curRoom, picks = VCAT.filter(v => v.cat === 'car' && !v.business).sort((a, b) => a.price - b.price).filter((v, i, A) => i % Math.max(1, Math.floor(A.length / 4)) === 0).slice(0, 4);
+  Promise.all(picks.map(v => loadVeh(v.n))).then(() => [[2.6, 8.0, 0.6], [2.6, 12.6, 0.6], [14.9, 8.0, -0.6], [14.9, 12.6, -0.6]].forEach(([x, z, r], i) => {
+    const v = picks[i]; if (!v || !proto['V_' + v.n]) return; const o = makeObject('V_' + v.n); o.position.set(R0.ox + x, 0.24, R0.oz + z); o.rotation.y = r; R0.group.add(o);
+    const tag = textPlaque(v.name || v.n.replace(/_/g, ' ') + ' · ' + v.price + ' $', '#c62828', 2.2); R0.group.remove(tag); scene.remove(tag); tag.position.set(R0.ox + x, 2.3, R0.oz + z); R0.group.add(tag);
+  }));
   [[2.6, 8.0, 0.6], [2.6, 12.6, 0.6], [14.9, 8.0, -0.6], [14.9, 12.6, -0.6]].forEach(([x, z, r], i) => {
-    const n = show[i % show.length]; if (!n) return; const o = makeObject(n); o.position.set(curRoom.ox + x, 0.24, curRoom.oz + z); o.rotation.y = r; curRoom.group.add(o);
+    if (true) { curRoom.cols.push([curRoom.ox + x - 1.4, curRoom.oz + z - 2.2, curRoom.ox + x + 1.4, curRoom.oz + z + 2.2]); return; }
+    const n = null; const o = makeObject(n); o.position.set(curRoom.ox + x, 0.24, curRoom.oz + z); o.rotation.y = r; curRoom.group.add(o);
     curRoom.cols.push([curRoom.ox + x - 1.4, curRoom.oz + z - 2.2, curRoom.ox + x + 1.4, curRoom.oz + z + 2.2]);
   });
   // lounge in the middle
@@ -4778,6 +4791,40 @@ function initPaidZone() { PAID.x0 = blockC(5) - 28; PAID.x1 = blockC(8) + 28; PA
 function inPaid(x, z) { return x > PAID.x0 && x < PAID.x1 && z > PAID.z0 && z < PAID.z1; }
 // L.street = { car, x, z, paidUntil (game minutes absolute), since }
 function gameNow() { return GT.day * 1440 + GT.min; }
+// ---- impound (fourrière): a player car left badly parked for 2 minutes gets a fine and is towed; it is given back at a police station once the fine is paid
+const IMPOUND_FINE = 75, IMPOUND_DELAY = 120; let BAYS = null;
+function badlyParked(car) {
+  const p = car.obj.position;
+  if (lotsParking.some(l => Math.abs(p.x - l.x) < 21 && Math.abs(p.z - l.z) < 21)) return false;
+  if (jobLots.some(l => Math.abs(p.x - l.cx) < 20 && Math.abs(p.z - l.cz) < 20)) return false;
+  if (Math.abs(p.x) > HALF + 2 || Math.abs(p.z) > HALF + 2) return false; // countryside (farm, quarry)
+  if (!BAYS) BAYS = parkedSpots.map(s => [s.x, s.z]).concat(L.impoundBays || []);
+  if (BAYS.some(([x, z]) => Math.abs(p.x - x) < 2.6 && Math.abs(p.z - z) < 2.6)) return false; // in a parking bay
+  if (L.street && L.street.car === car && L.street.paidUntil > gameNow()) return false;
+  return true;
+}
+function updateImpound(dt) {
+  for (const car of parkedPlayerCars.slice()) {
+    if (!car.owned || player.inCar === car) { car.badT = 0; continue; }
+    const p = car.obj.position; if (car.badAt && Math.hypot(p.x - car.badAt[0], p.z - car.badAt[1]) > 2) car.badT = 0;
+    if (!car.badT) { if (!badlyParked(car)) continue; car.badT = 0.001; car.badAt = [p.x, p.z]; phoneNotify('🚓 Police', 'Ton véhicule est mal stationné : déplace-le dans les 2 minutes ou il part en fourrière'); continue; }
+    car.badT += dt;
+    if (car.badT > IMPOUND_DELAY) {
+      car.badT = 0; scene.remove(car.obj); parkedPlayerCars.splice(parkedPlayerCars.indexOf(car), 1);
+      (L.impound = L.impound || []).push({ car, fine: IMPOUND_FINE }); if (L.street && L.street.car === car) L.street = null;
+      phoneNotify('🚨 Fourrière', (car.name || 'Ton véhicule') + ' a été enlevé · amende ' + IMPOUND_FINE + ' $ · récupère-le au commissariat'); banner('🚨 Ton véhicule est parti en fourrière (amende ' + IMPOUND_FINE + ' $)', 3500);
+    }
+  }
+}
+function impoundRows(door) {
+  const r = [{ sep: '🚗 Fourrière' + ((L.impound || []).length ? '' : ' : aucun de tes véhicules') }];
+  for (const it of (L.impound || [])) r.push({ t: 'Récupérer ' + (it.car.name || 'mon véhicule') + ' — payer ' + it.fine + ' $', fn: () => {
+    if (!payMoney(it.fine)) return; L.impound.splice(L.impound.indexOf(it), 1);
+    const dx = door.x + door.out[0] * 5 + door.out[1] * 6, dz = door.z + door.out[1] * 5 - door.out[0] * 6; it.car.obj.position.set(dx, SW + 0.24, dz); it.car.obj.rotation.y = Math.atan2(door.out[0], door.out[1]); scene.add(it.car.obj); parkedPlayerCars.push(it.car);
+    (L.impoundBays = L.impoundBays || []).push([dx, dz]); BAYS = null; closeMenu(); exitInterior && inside && exitInterior(true); gpsSet(dx, dz, '🚗 ' + (it.car.name || 'Mon véhicule')); banner('✅ Véhicule rendu : il t’attend devant le commissariat', 2600);
+  } });
+  return r;
+}
 function onCarParked(car) {
   const p = car.obj.position; if (!inPaid(p.x, p.z) || lotsParking.some(l => Math.abs(p.x - l.x) < 21 && Math.abs(p.z - l.z) < 21)) { L.street = null; return; }
   L.street = { car, x: p.x, z: p.z, paidUntil: 0, since: gameNow(), fined: false };
@@ -5037,7 +5084,7 @@ function updatePhone(dt) {
   PH.battery = Math.max(0, PH.battery - dt * (PH.open ? 0.12 : 0.02));
   if (inside) PH.battery = Math.min(100, PH.battery + dt * 2);
   if (PH.order) { PH.order.t -= dt; if (PH.order.t <= 0) { chest[PH.order.id] = (chest[PH.order.id] || 0) + 1; phoneNotify('🛵 Livraison', ITEMS[PH.order.id].n + ' livré chez toi (coffre)'); PH.order = null; } }
-  updatePaid(); updateGates(dt); updateGpsStrip(); updateContracts(dt); updateTaxes(); updatePrison(); updateSirens(performance.now() / 1000); updateCallouts(dt, performance.now() / 1000);
+  updatePaid(); updateImpound(dt); updateGates(dt); updateGpsStrip(); updateContracts(dt); updateTaxes(); updatePrison(); updateSirens(performance.now() / 1000); updateCallouts(dt, performance.now() / 1000);
   if (M.active !== PH.lastMis) { PH.lastMis = M.active; if (M.active) gpsOpen(); }
   if (J.task !== PH.lastTask) { PH.lastTask = J.task; if (J.task) phoneNotify(JOBS[J.job] ? JOBS[J.job].icon + ' ' + JOBS[J.job].label : '💼 Métier', J.task.goal || 'Nouvelle tâche'); }
   phTick += dt; if (PH.open && phTick > (PH.app === 'carte' ? 0.1 : 0.5)) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) { sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); if (sb.children[1]) sb.children[1].textContent = '💵 ' + M.money + ' $'; } } }
@@ -5208,6 +5255,10 @@ function start() {
         { const nm = {}; const bk = new Map(); for (const [k, b] of buckets) for (const im of (b.meshes || [])) bk.set(im, b.name); scene.traverseVisible(o => { if (o.isInstancedMesh) { const k = (bk.get(o) || '?').replace(/_\d.*$/, ''); nm['I:' + k] = (nm['I:' + k] || 0) + 1; } else if (o.isMesh && o.parent === scene && !CHUNKS.includes(o)) { const k = 'M:' + o.geometry.type + ':' + (o.material.type || ''); nm[k] = (nm[k] || 0) + 1; } }); console.log('NAMES ' + Object.entries(nm).sort((a, b) => b[1] - a[1]).slice(0, 25).map(e => e.join('=')).join(' ')); }
         console.log('CAT ' + Object.entries(cat).sort((a, b) => b[1].n - a[1].n).slice(0, 14).map(([k, e]) => k + ':' + e.n + '/' + Math.round(e.tri / 1000) + 'k').join(' '));
         console.log('STATS q=' + QUAL + ' calls=' + renderer.info.render.calls + ' tris=' + renderer.info.render.triangles + ' chunks=' + CHUNKS.length + ' visChunks=' + vis + ' carsVis=' + cars.filter(c => c.obj.visible).length + ' renderMs(sw)=' + ms.toFixed(0) + ' geomMB=' + (renderer.info.memory.geometries));
+      } else if (auto === 'impound') {
+        const car = parkedPlayerCars.find(c => c.owned) || (() => { const o = makeObject(CARS[0]); scene.add(o); const c = { obj: o, speed: 0, owned: true, name: 'Test' }; parkedPlayerCars.push(c); return c; })();
+        car.obj.position.set(lineX(6), RT + 0.24, lineX(6) + 20); const b0 = badlyParked(car); for (let i = 0; i < 260; i++) updateImpound(0.5);
+        const imp = (L.impound || []).length; M.money = 200; const d = doors.find(d => d.service === 'police'); const rows = impoundRows(d); rows[1] && rows[1].fn(); console.log('IMPOUND bad=' + b0 + ' impounded=' + imp + ' back=' + parkedPlayerCars.includes(car) + ' money=' + M.money);
       } else if (auto === 'lotview') {
         const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
@@ -5276,7 +5327,7 @@ function start() {
         const show = async (k) => {
           if (inside) exitInterior && exitInterior();
           const d = k === 'resto' ? doors.find(d => d.type === 'resto') : k === 'hopital' ? hospitalDoor() : k === 'lobby' ? lobbyFor(doors.find(d => d.type === 'appart')) : k === 'appart' ? Object.assign(doors.filter(d => d.type === 'appart')[5], { _viaLobby: true }) : doors.find(d => d.service === k || d.type === k);
-          await enterDoor(d); const r = inside.room; setFreeCam(true); camera.position.set(r.ox + r.w / 2, r.d * 1.45, r.oz + r.d * 1.35); controls.target.set(r.ox + r.w / 2, 0, r.oz + r.d * 0.45); controls.update(); console.log('TOUR ' + k);
+          await enterDoor(d); const r = inside.room; setFreeCam(true); camera.position.set(r.ox + r.w / 2, r.d * 1.45, r.oz + r.d * 1.35); controls.target.set(r.ox + r.w / 2, 0, r.oz + r.d * 0.45); controls.update(); console.log('TOUR ' + k + ' -> ' + (inside && (inside.door.service || inside.door.type)) + ' ox=' + r.ox);
         };
         let qi = 0; window.PENDING = show(kinds[qi++]);
         const nx = () => { show(kinds[qi++]).then(() => { if (qi >= kinds.length) window.NEXT = null; setTimeout(() => { window.DONE = 1; }, 2500); }).catch(e => { console.log('ERR ' + e.stack); window.DONE = 1; }); };
