@@ -229,6 +229,17 @@ async function loadExtras() {
   }
 }
 
+// packs are served gzip-compressed (pack 256 MB -> ~55 MB to download) and inflated in the browser
+const GZ = typeof DecompressionStream !== 'undefined';
+async function fetchPack(name) {
+  if (GZ) { const r = await fetch(BASE + name + '.gz'); if (r.ok) {
+    // if a host already inflated it (Content-Encoding), the bytes no longer start with the gzip magic: use them as they are
+    const rd = r.body.getReader(), first = await rd.read(); const gz = first.value && first.value[0] === 0x1f && first.value[1] === 0x8b;
+    const s = new ReadableStream({ start(c) { if (first.value) c.enqueue(first.value); if (first.done) c.close(); }, async pull(c) { const { done, value } = await rd.read(); if (done) c.close(); else c.enqueue(value); } });
+    return gz ? s.pipeThrough(new DecompressionStream('gzip')) : s; } }
+  return (await fetch(BASE + name)).body;
+}
+async function fetchPackBuf(name) { return await new Response(await fetchPack(name)).arrayBuffer(); }
 async function loadAll() {
   say('Chargement des modèles…');
   INDEX = await (await fetch(BASE + 'index.json')).json();
@@ -239,8 +250,7 @@ async function loadAll() {
   const datas = [];
   let got = 0;
   for (let pi = 0; pi < parts.length; pi++) {
-    const r = await fetch(BASE + parts[pi]);
-    const reader = r.body.getReader(); const chunks = []; let skip = heads[pi];
+    const reader = (await fetchPack(parts[pi])).getReader(); const chunks = []; let skip = heads[pi];
     for (;;) { let { done, value } = await reader.read(); if (done) break; if (skip) { const k = Math.min(skip, value.length); value = value.subarray(k); skip -= k; if (!value.length) continue; } chunks.push(value); got += value.length; say(`Chargement des modèles… ${(got / 1e6).toFixed(0)} / ${(PP.total / 1e6).toFixed(0)} Mo`); loadProgress(got / PP.total * 60, 'Téléchargement de la ville'); }
     datas.push(...chunks);
   }
@@ -504,9 +514,10 @@ let cullT = 0;
 function cullCity(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = 0.25;
   const R = QS.view || 1e9, cx = camera.position.x, cz = camera.position.z;
+  for (const r of interiors) { const want = !!(inside && inside.room === r), g = r.group; if (!g) continue; if (want && !g.parent) scene.add(g); else if (!want && g.parent === scene) scene.remove(g); }
   const RS = QS.detail || 1e9;
   for (const me of CHUNKS) { const s = me.geometry.boundingSphere, d = Math.hypot(s.center.x - cx, s.center.z - cz) - s.radius; me.visible = d < (me.userData.small ? RS : R); }
-  const R2 = (R * 0.8) ** 2; for (const c of cars) { const o = c.obj; o.visible = (o.position.x - cx) ** 2 + (o.position.z - cz) ** 2 < R2; }
+  const R2 = (R * 0.8) ** 2; for (const c of cars) { const o = c.obj, want = (o.position.x - cx) ** 2 + (o.position.z - cz) ** 2 < R2; if (want && !o.parent) scene.add(o); else if (!want && o.parent === scene) scene.remove(o); }
 }
 
 // ---------------------------------------------------------------- city layout
@@ -1678,7 +1689,7 @@ function updateGame(dt) {
 async function loadJobsPack() {
   say('Chargement des métiers…');
   const idx = await (await fetch(BASE + 'jindex.json')).json();
-  const buf = await (await fetch(BASE + 'jpack.bin')).arrayBuffer();
+  const buf = await fetchPackBuf('jpack.bin');
   const loader = new GLTFLoader();
   await Promise.all(Object.entries(idx).map(async ([name, [off, len]]) => {
     try {
@@ -3032,14 +3043,15 @@ function updateLife(dt) {
   if (L.placing) { const p = L.placing; p.g.position.set(player.pos.x + Math.sin(player.heading) * 1.6, 0, player.pos.z + Math.cos(player.heading) * 1.6); p.g.rotation.y = p.rot; }
   if (L.sitting) { player.pos.x = L.sitting.x; player.pos.z = L.sitting.z; player.ch.o.position.y = player.pos.y - 0.35; n.sommeil = Math.min(100, n.sommeil + dt * 0.6); }
   if (L.working) { const w = L.working; w.t -= dt; n.sommeil -= dt * 0.4; n.faim -= dt * 0.2; if (w.t <= 0) { L.working = null; document.getElementById('fade').style.display = 'none'; pay(w.payN, '💼 ' + w.label); } }
-  // needs decay (per second): a full bar lasts ~8-15 min
-  const run = keys.has('ShiftLeft') && !car;
-  n.faim -= dt * (0.11 + (run ? 0.05 : 0)); n.soif -= dt * (0.15 + (run ? 0.08 : 0)); n.hygiene -= dt * (0.09 + (run ? 0.05 : 0)); n.sommeil -= dt * (L.sick ? 0.16 : 0.1);
-  if (n.faim <= 0 || n.soif <= 0) n.sante -= dt * 0.8;
-  if (L.sick) n.sante -= dt * 0.12;
+  // needs decay on the game clock (1 real hour = 24 game hours, gm = game minutes elapsed this frame):
+  // a full bar empties in 16 game h (hunger), 12 h (thirst), 24 h (hygiene), 20 h (sleep) = 40 / 30 / 60 / 50 real minutes; running costs 50 % more
+  const run = keys.has('ShiftLeft') && !car, gm = dt * 1440 / DAY_SEC, rk = run ? 1.5 : 1;
+  n.faim -= gm * 100 / (16 * 60) * rk; n.soif -= gm * 100 / (12 * 60) * rk; n.hygiene -= gm * 100 / (24 * 60) * rk; n.sommeil -= gm * 100 / ((L.sick ? 14 : 20) * 60);
+  if (n.faim <= 0 || n.soif <= 0) n.sante -= gm * 100 / (5 * 60);   // starving / dehydrated: health drains over 5 game h (12 real min)
+  if (L.sick) n.sante -= gm * 100 / (18 * 60);                       // illness: slow drain until cured
   for (const k in n) n[k] = Math.max(0, Math.min(100, n[k]));
   lifeT += dt;
-  if (lifeT > 5) { lifeT = 0; if (n.hygiene < 20 && !L.sick && Math.random() < 0.15) { L.sick = true; banner('🤒 Tu es tombé malade (hygiène) : médicament ou hôpital', 2600); } }
+  if (lifeT > 60) { lifeT = 0; if (n.hygiene < 15 && !L.sick && Math.random() < 0.12) { L.sick = true; banner('🤒 Tu es tombé malade (hygiène) : médicament ou hôpital', 2600); } }
   if ((n.sommeil <= 0 || n.sante <= 0) && !L.fainting) { L.fainting = true; faint(n.sommeil <= 0 ? 'Épuisé, tu tombes dans les pommes' : 'Tu t’effondres'); setTimeout(() => { L.fainting = false; }, 3000); }
   // vehicle fuel, damage, red lights
   if (car) {
@@ -3130,7 +3142,7 @@ const INT_TYPES = {
   appart: { label: 'Appartement', color: 0x7ad3ff },
   resto: { label: 'Restaurant', color: 0xff8a3c },
   epicerie: { label: 'Épicerie', color: 0x6ee06e },
-  jouets: { label: 'Jouets & Sport', color: 0xff5ad0 },
+  jouets: { label: '🏋️ Salle de sport', color: 0xff5ad0 },
   entrepot: { label: 'Entrepôt', color: 0xc9a46a },
   service: { label: 'Service', color: 0xffffff },
 };
@@ -3160,7 +3172,7 @@ function loadInteriorPack(bg) {
     const loader = new GLTFLoader();
     for (const [ix, bin] of [['iindex.json', 'ipack.bin'], ['gindex.json', 'gpack.bin']]) {
     const idx = await (await fetch(BASE + ix)).json();
-    const buf = await (await fetch(BASE + bin)).arrayBuffer();
+    const buf = await fetchPackBuf(bin);
     // parsed in small time slices so the game keeps running while the pack streams in (no freeze on the first door)
     let slice = performance.now();
     for (const [name, [off, len]] of Object.entries(idx)) {
@@ -3370,6 +3382,26 @@ function buildEpicerie(food) {
   if (proto.G_Kitchen_Cabinet_1) { iput('G_Kitchen_Cabinet_1', 9.9, 7.6, 0); const t = topOf('G_Kitchen_Cabinet_1'); iput('G_Screen_1', 9.2, 7.5, Math.PI, t, false); iput('G_Laptop_1', 10.6, 7.5, Math.PI, t, false); }
   roomNPC(9.9, 7.0, 'Idle_A-loop', 0); curRoom.counter = new THREE.Vector3(curRoom.ox + 9.9, 0, curRoom.oz + 8.5); roomNPC(5, 4.9, 'LookingAround-loop', 0); if (chance(0.5)) roomNPC(7.5, 7.2, 'Idle_B-loop', Math.PI);
 }
+// gym (the GymSign shop): reception desk at the entrance, machines on mats, free weights on the wall side, boxing corner, members training
+function buildGym(toys) {
+  shell(6, 5, 'I_Floor_12', pickExisting(['I_Wall_03', 'I_Wall_11', 'I_Wall_12']), 2);
+  const R = curRoom, all = toys.filter(n => /^T_Gym_\d+$/.test(n) && proto[n]), mats = toys.filter(n => /^T_Carpet_/.test(n)), box = toys.filter(n => /^T_Boxer_/.test(n)), net = toys.find(n => /^T_Basketball_Net/.test(n));
+  const size = n => { const s = proto[n].bb.getSize(new THREE.Vector3()); return Math.max(s.x, s.y, s.z); };
+  const machines = all.filter(n => size(n) > 1.0), weights = all.filter(n => size(n) <= 1.0);
+  // reception just inside the door
+  counter(9.6, 10.0, 2); roomNPC(9.6, 9.3, 'Idle_A-loop', 0); R.counter = new THREE.Vector3(R.ox + 9.6, 0, R.oz + 11.2); labelAt('Accueil · abonnements', 9.6, 12.2, Math.PI);
+  // machines in a row on mats, 2.6 m apart
+  const spots = []; machines.forEach((g, i) => { const x = 1.8 + (i % 5) * 2.6, z = i < 5 ? 2.2 : 5.6; if (mats.length) iput(mats[i % mats.length], x, z, 0, 0.01, false); iput(g, x, z, 0); spots.push({ x, z: z + 1.5, face: Math.PI }); });
+  // free weights lined up along the left wall like on a rack
+  weights.forEach((g, i) => iput(g, 0.6, 5.0 + i * 0.7, Math.PI / 2, 0, false));
+  // boxing corner + hoop
+  box.slice(0, 2).forEach((b, i) => iput(b, 13.6, 1.6 + i * 2.4, -Math.PI / 2)); if (net) iput(net, 14.4, 7.4, -Math.PI / 2);
+  PLANT('large', 0.8, 11.8); PLANT('medium', 14.2, 11.8);
+  const pts = spots.map(s => ({ ...s, clip: pick(['Idle_B-loop', 'LookingAround-loop']) }));
+  box.slice(0, 2).forEach((b, i) => pts.push({ x: 12.4, z: 1.6 + i * 2.4, face: Math.PI / 2, clip: 'FightM_Combo_A' }));
+  for (let k = 0; k < Math.min(3, Math.floor(pts.length / 2)); k++) roomActor(pts.slice(k * 2).concat(pts.slice(0, k * 2)));
+  R.hallBox = [1.5, 12.0, 7.8, 9.2];
+}
 function buildJouets(toys) {
   shell(5, 4, pickExisting(['I_Floor_03', 'I_Floor_05', 'I_Floor_08', 'I_Floor_12', 'I_Floor_10', 'I_Floor_14', 'I_Floor_20']), pickExisting(['I_Wall_03', 'I_Wall_11', 'I_Wall_12']), 2);
   const tables = toys.filter(n => /^T_(Table|Clothes_Table)_/.test(n)), carpets = toys.filter(n => /^T_Carpet_/.test(n));
@@ -3414,7 +3446,7 @@ async function buildInterior(door) {
   curRoom = { door, group: new THREE.Group(), cols: [], npcs: [], ox: 6000 + (k % 12) * 40, oz: 600 + Math.floor(k / 12) * 40 };
   scene.add(curRoom.group);
   const saved = seed; seed = 1000 + door.id * 7919;
-  ({ service: () => buildService(door.service), appart: buildAppart, resto: buildRestoPlan, epicerie: () => buildEpicerie(extra), jouets: () => buildJouets(extra), entrepot: buildEntrepot, hotelroom: buildHotelRoom, lobby: () => buildLobby(door) })[door.type]();
+  ({ service: () => buildService(door.service), appart: buildAppart, resto: buildRestoPlan, epicerie: () => buildEpicerie(extra), jouets: () => buildGym(extra), entrepot: buildEntrepot, hotelroom: buildHotelRoom, lobby: () => buildLobby(door) })[door.type]();
   seed = saved;
   for (const c of curRoom.cols) addCol(...c, 0);
   const room = curRoom; curRoom = null;
@@ -3428,7 +3460,7 @@ async function enterDoor(door) {
   if (entering) return; entering = true;
   try {
     const room = door.built || await buildInterior(door);
-    inside = { door, room };
+    inside = { door, room }; if (room.group && !room.group.parent) scene.add(room.group); cullT = 0;
     player.pos.copy(room.spawn); player.heading = Math.PI; cam.yaw = 0; cam.pitch = 0.75; cam.prevDist = cam.dist; cam.dist = 8;
     banner(door.type === 'lobby' ? (door.kind === 'hopital' ? '🏥 Hall de l’hôpital' : '🏢 Hall de l’immeuble') : door.service ? SERVICES[door.service].label : INT_TYPES[door.type].label, 1400);
   } finally { entering = false; }
@@ -3458,7 +3490,7 @@ function interiorPrompt() {
 }
 // cut-away: hide the walls between the camera and the room
 function updateInterior(dt) {
-  for (const r of interiors) for (const n of r.npcs) n.mixer.update(dt);
+  if (inside && inside.room.npcs) for (const n of inside.room.npcs) n.mixer.update(dt); // only the room the player is in
   if (!inside) return;
   const r = inside.room, cx = camera.position.x - r.ox, cz = camera.position.z - r.oz;
   r.walls.N.visible = cz > 0.5; r.walls.S.visible = cz < r.d - 0.5; r.walls.W.visible = cx > 0.5; r.walls.E.visible = cx < r.w - 0.5;
@@ -3528,8 +3560,12 @@ function spawnBuses() {
     const n = 3, len = L.nodes.length;
     for (let k = 0; k < n; k++) {
       const ri = Math.floor(k * len / n);
-      const name = proto['Bus_1'] ? 'Bus_1' : (BUS_MODELS.filter(m => proto[m])[(li * 3 + k) % BUS_MODELS.filter(m => proto[m]).length] || 'RVCar_A');
+      // one model per line + a route board in the line's colour on both sides and the front (same colour for every bus of the line)
+      const ok = BUS_MODELS.filter(m => proto[m]), name = proto['Bus_1'] ? 'Bus_1' : (ok[li % ok.length] || 'RVCar_A');
       const obj = makeObject(name); scene.add(obj);
+      { const bb = proto[name].bb, col = '#' + L.color.toString(16).padStart(6, '0'), h = bb.max.y + 0.35;
+        for (const [x, z, r] of [[bb.max.x + 0.02, (bb.min.z + bb.max.z) / 2, Math.PI / 2], [bb.min.x - 0.02, (bb.min.z + bb.max.z) / 2, -Math.PI / 2]]) {
+          const p = textPlaque('🚌 ' + L.name, col, r === Math.PI ? 1.8 : 2.6); scene.remove(p); p.position.set(x, r === Math.PI ? h - 0.6 : h - 0.9, z); p.rotation.y = r; obj.add(p); } }
       const a = L.nodes[ri], b = L.nodes[(ri + 1) % len];
       const bus = { obj, a, b, seg: laneEnds(a, b), t: 0.05, mode: 'lane', speed: 8, v: 0, curve: null, route: L.nodes, ri, line: li, served: false, dwell: 0, atStop: null };
       cars.push(bus); buses.push(bus);
@@ -4064,9 +4100,9 @@ function startFoodRun() {
 // ---- gym / sport: basketball hoops of the city pack (no gym machines in the packs)
 const hoops = [];
 function hoopNear() { if (player.inCar || inside) return null; return hoops.find(h => Math.hypot(h.x - player.pos.x, h.z - player.pos.z) < 3) || null; }
-function gymMenu() {
+function gymMenu(title) {
   const active = L.gymUntil && gameNow() < L.gymUntil;
-  openMenu('🏀 Terrain de sport', [
+  openMenu(title || '🏀 Terrain de sport', [
     { sep: active ? 'Abonnement actif : santé max 120 %' : 'Pas d’abonnement' },
     { t: '🏋️ S’entraîner 10 s', fn: () => { closeMenu(); work(10, 0, 'Entraînement'); setTimeout(() => { L.needs.sante = Math.min(hpMax(), L.needs.sante + 25); L.needs.sommeil = Math.max(0, L.needs.sommeil - 10); L.needs.hygiene = Math.max(0, L.needs.hygiene - 20); banner('💪 Entraînement terminé', 1400); }, 10500); }, keep: false },
     { t: '🎟️ Abonnement hebdomadaire — 15 $', dis: active, fn: () => { if (payMoney(15)) { L.gymUntil = gameNow() + 7 * 1440; L.needs.sante = Math.min(120, L.needs.sante + 20); phoneNotify('🏀 Sport', 'Abonnement actif 7 jours : santé max +20 %'); } } },
@@ -4110,6 +4146,7 @@ function counterMenu(door) {
     { t: 'Payer mes amendes', dis: !L.fines, fn: () => { if (payMoney(L.fines)) { L.fines = 0; banner('Amendes payées', 1200); } } },
     ...impoundRows(door),
   ]);
+  if (!door.service && door.type === 'jouets') return gymMenu('🏋️ Salle de sport — accueil');
   if (!door.service) { if (k === 'epicerie') return serviceMenu({ ...door, service: 'supermarche' }); return openMenu('🧸 Caisse', [{ sep: 'Les articles se prennent directement sur les étagères (E) et sont payés à ce moment-là.' }]); }
   return serviceMenu(door);
 }
@@ -4179,16 +4216,16 @@ function updatePedLife(dt) {
   const night = GT.min < 6 * 60 || GT.min > 22 * 60;
   for (const p of peds) {
     p.lt = (p.lt ?? rr(0, 20)) - dt;
-    if (p.away) { if (p.lt <= 0 && !(night && p.nightHome)) { p.away = false; p.o.visible = true; p.walking = true; play(p, pick(['Walk_A-loop', 'Walk_B-loop'])); } continue; }
+    if (p.away) { if (p.lt <= 0 && !(night && p.nightHome)) { p.away = false; p.o.visible = true; pedAttach(p); p.walking = true; play(p, pick(['Walk_A-loop', 'Walk_B-loop'])); } continue; }
     if (p.benched) { seatPose(p); if (p.lt <= 0) { p.benched = false; standPose(p); p.o.position.x += Math.sin(p.o.rotation.y) * 0.8; p.o.position.z += Math.cos(p.o.rotation.y) * 0.8; p.walking = true; play(p, 'Walk_A-loop'); } continue; }
     if (night && p.nightHome === undefined) p.nightHome = chance(0.6);
     if (!night) p.nightHome = undefined;
     if (p.lt > 0) continue;
     p.lt = rr(8, 25);
     const x = p.o.position.x, z = p.o.position.z;
-    if (night && p.nightHome) { p.away = true; p.o.visible = false; p.lt = 30; continue; }
+    if (night && p.nightHome) { p.away = true; p.o.visible = false; pedAttach(p); p.lt = 30; continue; }
     const d = doors.find(d => (d.service || d.type === 'resto') && Math.hypot(d.x - x, d.z - z) < 6);
-    if (d && chance(0.5)) { p.away = true; p.o.visible = false; p.lt = rr(15, 45); continue; } // goes into the shop
+    if (d && chance(0.5)) { p.away = true; p.o.visible = false; pedAttach(p); p.lt = rr(15, 45); continue; } // goes into the shop
     const b = benchSpots.find(b => !b.used && Math.hypot(b.x - x, b.z - z) < 8);
     if (b && chance(0.6)) { b.used = true; p.benched = true; p.walking = false; p.o.position.set(b.x, SW + sitDrop(p, b.y || 0.45), b.z); p.o.rotation.y = b.rot; play(p, 'Idle_A-loop'); p.lt = rr(20, 60); setTimeout(() => b.used = false, p.lt * 1000); continue; }
     if (!p.walking) { p.walking = true; play(p, pick(['Walk_A-loop', 'Walk_B-loop', 'Walk_C-loop'])); }
@@ -4572,6 +4609,9 @@ async function cloudPush() {
 // ---- performance: animation level of detail, far pedestrians hidden, shadow throttling, auto quality
 let shFrame = 0;
 const _lp = new THREE.Vector3();
+// objects out of range are detached from the scene graph (not just hidden): three.js then neither walks their bones
+// nor updates their matrices every frame — the main CPU cost of a frame with hundreds of walkers and cars
+function pedAttach(p) { const want = !p.away && !p.o.userData.lodHidden; if (want && !p.o.parent) scene.add(p.o); else if (!want && p.o.parent === scene) scene.remove(p.o); }
 function animLOD(dt) {
   const fx = camera.position.x, fz = camera.position.z, near = SHOT ? 1e9 : QS.anim, far2 = near * near, mid2 = (near * 0.45) ** 2;
   for (const m of mixers) {
@@ -4582,7 +4622,7 @@ function animLOD(dt) {
     m.update(dt + (m._acc || 0)); m._acc = 0;
   }
   // street pedestrians beyond the animation range are not drawn
-  if (!SHOT) for (const p of peds) { if (p.away) continue; const d2 = (p.o.position.x - fx) ** 2 + (p.o.position.z - fz) ** 2; const hide = d2 > far2 * 1.6; if (hide !== !!p.o.userData.lodHidden) { p.o.userData.lodHidden = hide; p.o.visible = !hide; } }
+  if (!SHOT) for (const p of peds) { if (p.away) continue; const d2 = (p.o.position.x - fx) ** 2 + (p.o.position.z - fz) ** 2; const hide = d2 > far2 * 1.6; if (hide !== !!p.o.userData.lodHidden) { p.o.userData.lodHidden = hide; pedAttach(p); } }
 }
 const FPS = { t: 0, n: 0, low: 0, done: false };
 // dynamic resolution: the render scale follows the frame rate (sharp whenever the device can, never lowers lighting or models)
@@ -5173,7 +5213,7 @@ function frame() {
 function start() {
   setupPost();
   try { renderer.compile(scene, camera); } catch (e) {} // every city shader compiled during loading, not on first sight
-  if (!SHOT) setTimeout(() => { const idle = window.requestIdleCallback || (f => setTimeout(f, 50)); idle(() => loadInteriorPack(true).then(() => { ipackDone = true; })); }, 6000);
+  if (!SHOT) setTimeout(() => { const idle = window.requestIdleCallback || (f => setTimeout(f, 50)); idle(() => loadInteriorPack(true).then(() => { ipackDone = true; })); }, 1500);
   if (SHOT) {
     // advance simulation a little so cars/people are spread, then render once
     const step = () => { updateSignals(0.05); updateDayNight(0.05); updateGame(0.05); updatePhone(0.05); updateCars(0.05); updatePeds(0.05); updateSmoke(0.05); updateFlyers(0.05, 0); for (const m of mixers) m.update(0.05); try { updateRiders(); } catch (e) {} };
@@ -5335,6 +5375,23 @@ function start() {
         console.log('TRIS total=' + Math.round(Object.values(agg).reduce((s, e) => s + e.tot, 0) / 1e6 * 10) / 10 + 'M ' + top.join(' '));
         const ch = Object.keys(skinned)[0]; let st = 0; skinned[ch].traverse(o => { if (o.isMesh) st += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; }); const cr = cars[0] && cars[0].obj; let ct = 0; cr && cr.traverse(o => { if (o.isMesh) ct += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
         console.log('TRIS char=' + st + ' car=' + ct + ' peds=' + peds.length + ' cars=' + cars.length);
+      } else if (auto === 'istats') {
+        const d = doors.find(d => d.type === (Q.get('k') || 'jouets')); window.PENDING = (async () => { await enterDoor(d); for (let i = 0; i < 5; i++) step(); cullT = 0; cullCity(1); animLOD(0.05);
+          for (const p of peds) { const dd = Math.hypot(p.o.position.x - camera.position.x, p.o.position.z - camera.position.z); p.o.visible = dd < QS.anim * 1.26; }
+          renderer.info.autoReset = false; renderer.info.reset(); renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); console.log('IFRAME calls=' + renderer.info.render.calls + ' tris=' + renderer.info.render.triangles);
+          const cat = {}; scene.traverseVisible(o => { if (!o.isMesh) return; let k = CHUNKS.includes(o) ? 'chunk' : o.isSkinnedMesh ? 'skin' : 'mesh'; let p = o; while (p.parent && p.parent !== scene) p = p.parent; if (p === inside.room.group) k = 'room:' + (o.parent.userData.name || o.parent.name || '?').replace(/_\d+$/, ''); const e = cat[k] || (cat[k] = { n: 0, tri: 0 }); e.n++; e.tri += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+          console.log('ICAT ' + Object.entries(cat).sort((a, b) => b[1].tri - a[1].tri).slice(0, 20).map(([k, e]) => k + ':' + e.n + '/' + Math.round(e.tri / 1000) + 'k').join(' ')); let objs = 0; scene.traverse(() => objs++); const tc = {}; for (const c of scene.children) { const k = c.type + ':' + (c.userData.name ? c.userData.name.replace(/_.*/, '') : c.geometry ? c.geometry.type : '') + (peds.some(p => p.o === c) ? ':ped' : cars.some(q => q.obj === c) ? ':car' : CHUNKS.includes(c) ? ':chunk' : ''); tc[k] = (tc[k] || 0) + 1; } console.log('TOP ' + Object.entries(tc).sort((a, b) => b[1] - a[1]).slice(0, 25).map(e => e.join('=')).join(' ')); console.log('SCENE objects=' + objs + ' children=' + scene.children.length);
+        })();
+      } else if (auto === 'clips') { console.log('CLIPS ' + Object.keys(clips).join(','));
+      } else if (auto === 'needs') {
+        game.on = true; Object.assign(L.needs, { faim: 100, soif: 100, hygiene: 100, sommeil: 100, sante: 100 }); const g0 = gameNow(); for (let i = 0; i < 600; i++) { updateLife(1); GT.min += 1440 / DAY_SEC; }
+        console.log('NEEDS after 10 real min: ' + JSON.stringify(Object.fromEntries(Object.entries(L.needs).map(([k, v]) => [k, Math.round(v)]))) + ' sick=' + L.sick + ' gameMin=' + Math.round(gameNow() - g0));
+      } else if (auto === 'enterT') {
+        window.PENDING = (async () => { const ds = [doors.find(d => d.service === 'banque'), doors.find(d => d.service === 'pharmacie'), doors.find(d => d.type === 'resto'), doors.find(d => d.service === 'banque')]; const r = [];
+          for (const d of ds) { const a = performance.now(); await enterDoor(d); r.push(Math.round(performance.now() - a)); exitInterior(true); }
+          console.log('ENTER ms (cold, warm, warm, revisit) = ' + r.join(', ')); })();
+      } else if (auto === 'busview') {
+        const b = buses[+(Q.get('n') || 4)]; setFreeCam(true); const p = b.obj.position; for (const mk of scene.children) if (mk.isGroup && mk.children.some(c => c.material && c.material.transparent && c.material.opacity < 0.4)) mk.visible = false; camera.position.set(p.x + 6, 14, p.z + 6); controls.target.set(p.x, 1.5, p.z); controls.update();
       } else if (auto === 'lotview') {
         const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
