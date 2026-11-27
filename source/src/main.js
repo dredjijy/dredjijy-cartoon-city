@@ -412,6 +412,11 @@ function clearDoorways() {
   }
   for (let i = propCols.length - 1; i >= 0; i--) { const c = propCols[i]; const cx = (c[0] + c[2]) / 2, cz = (c[1] + c[3]) / 2; if (c[2] - c[0] < 1.2 && jobLots.some(l => Math.abs(cx - l.cx) < 18.5 && Math.abs(cz - l.cz) < 18.5) && Math.abs(c[2] - c[0] - 0.64) < 0.2) { propCols.splice(i, 1); continue; } if (c[2] - c[0] < 1.2 && near((c[0] + c[2]) / 2, (c[1] + c[3]) / 2)) propCols.splice(i, 1); }
   { const poles = []; for (const b of buckets.values()) if (/^(StreetLamp|Lamp_Court|Lights_|Parkomat|Sign|BusStop|RoadSign|Pole)/.test(b.name)) for (const mt of b.mats) { v.setFromMatrixPosition(mt); poles.push([v.x, v.z]); }
+    { // trees must never stand on a road / lane: remove any tree whose trunk is on the carriageway or its kerb
+      const onRoad = (x, z) => { if (Math.abs(x) > HALF + 4 || Math.abs(z) > HALF + 4) return false; for (let k = 0; k <= N; k++) { if (Math.abs(x - lineX(k)) < ROAD / 2 + 0.6 || Math.abs(z - lineX(k)) < ROAD / 2 + 0.6) return true; } return false; };
+      let rm = 0; const gone = []; for (const b of buckets.values()) if (/^(Tree|Bush)/.test(b.name)) { const n0 = b.mats.length; b.mats = b.mats.filter(mt => { v.setFromMatrixPosition(mt); const bad = onRoad(v.x, v.z); if (bad) gone.push([v.x, v.z]); return !bad; }); rm += n0 - b.mats.length; }
+      const hit = (c) => gone.some(([x, z]) => Math.abs((c[0] + c[2]) / 2 - x) < 0.2 && Math.abs((c[1] + c[3]) / 2 - z) < 0.2); for (let i = propCols.length - 1; i >= 0; i--) if (hit(propCols[i])) propCols.splice(i, 1); for (let i = camCols.length - 1; i >= 0; i--) if (gone.some(([x, z]) => Math.abs(camCols[i].x - x) < 0.2 && Math.abs(camCols[i].z - z) < 0.2)) camCols.splice(i, 1);
+      console.log('TREES on road removed ' + rm); }
     for (const b of buckets.values()) if (/^Tree/.test(b.name)) { const n0 = b.mats.length; b.mats = b.mats.filter(mt => { v.setFromMatrixPosition(mt); return !poles.some(([x, z]) => Math.hypot(x - v.x, z - v.z) < 2.2); }); DOORWAY_CLEARED += n0 - b.mats.length; } }
   for (let i = lampHeads.length - 1; i >= 0; i--) if (near(lampHeads[i].x, lampHeads[i].z)) lampHeads.splice(i, 1);
 }
@@ -979,7 +984,10 @@ function updateCars(dt) {
   const CGc = 16, grid = updateCars.g || (updateCars.g = new Map()); grid.clear();
   for (const o of cars) { const k = Math.floor(o.obj.position.x / CGc) * 4096 + Math.floor(o.obj.position.z / CGc); let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(o); }
   const near = (c) => { const gx = Math.floor(c.obj.position.x / CGc), gz = Math.floor(c.obj.position.z / CGc), out = near.o || (near.o = []); out.length = 0; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a = grid.get((gx + i) * 4096 + gz + j); if (a) for (const o of a) out.push(o); } return out; };
+  const fr2 = ((QS.view || 400) * 0.8) ** 2, cx0 = camera.position.x, cz0 = camera.position.z;
   for (const c of cars) {
+    // far cars (not drawn): simulated 4x less often with the accumulated time
+    let dtc = dt; if ((c.obj.position.x - cx0) ** 2 + (c.obj.position.z - cz0) ** 2 > fr2 && !c.route) { c._a = (c._a || 0) + dt; c._i = (c._i || 0) + 1; if (c._i % 4) continue; dtc = Math.min(0.2, c._a); c._a = 0; }
     // simple following: slow down if a car ahead on same lane
     let target = c.speed; const nb = near(c);
     if (c.mode === 'lane') {
@@ -1008,16 +1016,16 @@ function updateCars(dt) {
     { const ry = c.obj.rotation.y, fx = -Math.sin(ry), fz = -Math.cos(ry), px = c.obj.position.x, pz = c.obj.position.z;
       if (!(c.stuck > 4)) for (const o of nb) { if (o === c) continue; const rx = o.obj.position.x - px, rz = o.obj.position.z - pz; if (rx * rx + rz * rz > 300) continue;
         const along = rx * fx + rz * fz, lat = Math.abs(rx * fz - rz * fx); if (along > 0 && along < 16 && lat < 2.2) target = Math.min(target, Math.max(0, (along - 6.5) * 1.2)); }
-      c.stuck = target < 0.2 && c.speed > 0.5 ? (c.stuck || 0) + dt : 0; if (c.stuck > 6) c.stuck = 0; // 4 s stuck → ignore other cars for 2 s (no deadlock at crossings)
+      c.stuck = target < 0.2 && c.speed > 0.5 ? (c.stuck || 0) + dtc : 0; if (c.stuck > 6) c.stuck = 0; // 4 s stuck → ignore other cars for 2 s (no deadlock at crossings)
       let pull = 0;
       for (const e of em) { const rx = px - e.position.x, rz = pz - e.position.z, d2 = rx * rx + rz * rz; if (d2 > 900 || d2 < 1) continue; const er = e.rotation.y, efx = -Math.sin(er), efz = -Math.cos(er);
         if (rx * efx + rz * efz > 0 && fx * efx + fz * efz > 0.5) pull = 1; else if (Math.sqrt(d2) < 14 && fx * efx + fz * efz < -0.5) target = Math.min(target, 1.5); }
-      c.pull = (c.pull || 0) + (pull - (c.pull || 0)) * Math.min(1, dt * 1.5); if (pull) target = Math.min(target, 0.3); }
-    if (c.route) target = busTarget(c, target, dt);
-    c.v += (target - c.v) * Math.min(1, dt * 2);
+      c.pull = (c.pull || 0) + (pull - (c.pull || 0)) * Math.min(1, dtc * 1.5); if (pull) target = Math.min(target, 0.3); }
+    if (c.route) target = busTarget(c, target, dtc);
+    c.v += (target - c.v) * Math.min(1, dtc * 2);
     if (c.mode === 'lane') {
       const len = c.seg.s.distanceTo(c.seg.e);
-      c.t += c.v * dt / len;
+      c.t += c.v * dtc / len;
       if (c.t >= 1) {
         const nbs = neighbors(...c.b).filter(n => !(n[0] === c.a[0] && n[1] === c.a[1]));
         const nxt = c.route ? c.route[(c.ri + 2) % c.route.length] : pick(nbs.length ? nbs : [c.a]);
@@ -1036,7 +1044,7 @@ function updateCars(dt) {
     }
     if (c.mode === 'turn') {
       const len = c.curve.getLength();
-      c.ct += c.v * dt / len;
+      c.ct += c.v * dtc / len;
       if (c.ct >= 1) { c.mode = 'lane'; c.t = 0; }
       else { const p = c.curve.getPoint(c.ct), tg = c.curve.getTangent(c.ct); c.obj.position.copy(p); c.obj.rotation.y = Math.atan2(tg.x, tg.z) + Math.PI; }
     }
@@ -1088,8 +1096,10 @@ function perimPos(off, s) { // s in [0,4): square path
   const v = t * off;
   return [[v, -off, 1, 0], [off, v, 0, 1], [-v, off, -1, 0], [-off, -v, 0, -1]][side];
 }
-function updatePeds(dt) {
+function updatePeds(dt) { const dtAll = dt;
+  updatePeds.f = (updatePeds.f || 0) + 1;
   for (const p of peds) {
+    let dt = dtAll; if (p.o.userData.lodHidden && !SHOT) { p._a = (p._a || 0) + dtAll; if ((updatePeds.f + p.off * 7 | 0) % 6) continue; dt = Math.min(0.3, p._a); p._a = 0; }
     if (game.on && !player.inCar && Math.abs(p.o.position.x - player.pos.x) < 1.1 && Math.abs(p.o.position.z - player.pos.z) < 1.1) { p.o.rotation.y = Math.atan2(player.pos.x - p.o.position.x, player.pos.z - p.o.position.z); continue; }
     if (!p.walking) { const [x, z, dx, dz] = perimPos(p.off, p.s); p.o.position.set(p.cx + x, SW, p.cz + z); p.o.rotation.y = Math.atan2(-dz, dx) + (p.dir > 0 ? 0 : 0); continue; }
     p.s += p.dir * p.speed * dt / (p.off * 2);
@@ -1364,7 +1374,7 @@ function initPlayer() {
 addEventListener('keydown', (e) => {
   if (!game.on || UI.open) return;
   keys.add(e.code);
-  if (e.code === 'KeyE') { if (!player.onBus && lifeAction()) return; if (!player.onBus && !inside && jobAction()) return; if (!player.inCar && !player.onBus && interiorAction()) return; if (player.inCar || !busAction()) toggleCar(); }
+  if (e.code === 'KeyE') { if (!player.inCar && !player.onBus && !inside && interiorPrompt() && interiorAction()) return; if (!player.onBus && lifeAction()) return; if (!player.onBus && !inside && jobAction()) return; if (!player.inCar && !player.onBus && interiorAction()) return; if (player.inCar || !busAction()) toggleCar(); }
   if (e.code === 'KeyC') setFreeCam(!game.freeCam);
   if (e.code === 'KeyM') document.getElementById('minimap').classList.toggle('hidden');
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1586,7 +1596,7 @@ function updateHud(dt) {
   const car = player.inCar;
   hud.speed.textContent = car ? Math.round(Math.abs(car.speed) * 3.6) + ' km/h' : '';
   hud.speed.style.display = car ? 'block' : 'none';
-  let msg = lifePrompt() || jobPrompt() || interiorPrompt() || busPrompt();
+  let msg = (!inside && !player.inCar && interiorPrompt()) || lifePrompt() || jobPrompt() || interiorPrompt() || busPrompt();
   if (msg) {}
   else if (car) msg = Math.abs(car.speed) > 4 ? '' : 'E : descendre';
   else if (nearestCar()) msg = 'E : monter dans le véhicule';
@@ -1950,6 +1960,13 @@ function initMenuEarly() {
   document.getElementById('pSave').onclick = () => { saveGame(); banner('💾 Partie sauvegardée', 1400); };
   document.getElementById('pSet').onclick = () => { document.getElementById('pause').classList.remove('on'); setReturn = 'pause'; document.getElementById('start').style.display = 'flex'; showScr('scrSet'); };
   document.getElementById('pMenu').onclick = () => { saveGame(true); document.getElementById('pause').classList.remove('on'); window.PAUSED = false; game.on = false; document.getElementById('hud').style.display = 'none'; document.getElementById('start').style.display = 'flex'; document.body.classList.add('menu'); showScr('scrMenu'); };
+  const fpsOn = (v) => { document.getElementById('fps').style.display = v ? 'block' : 'none'; document.getElementById('fpsChk').checked = v; localStorage.setItem('cc_fps', v ? '1' : ''); };
+  fpsOn(!!localStorage.getItem('cc_fps'));
+  document.getElementById('fpsChk').onchange = (e) => fpsOn(e.target.checked);
+  document.getElementById('hbFps').onclick = () => fpsOn(document.getElementById('fps').style.display === 'none');
+  document.getElementById('hbSet').onclick = () => togglePause();
+  const rs = document.getElementById('resSel'); rs.value = localStorage.getItem('cc_res') || 'auto'; rs.onchange = () => localStorage.setItem('cc_res', rs.value);
+  const qs = document.getElementById('qualSel'); if (qs) qs.value = QAUTO ? 'auto' : QUAL;
   loadProgress(1);
 }
 function onWorldReady() {
@@ -2449,11 +2466,22 @@ const IW = ['I_Wall_01', 'I_Wall_02', 'I_Wall_03', 'I_Wall_04', 'I_Wall_05'];
 // wall line inside a room. axis 'x': runs along x at z=fixed from tile a to tile b (exclusive); gaps = tile indices left open (doorways)
 function partition(axis, fixed, a, b, gaps = [], wall) {
   const r = curRoom, Tt = 2.5, w = wall || r.wallName || 'I_Wall_01';
+  const piece = (from, len) => { // wall segment along the partition from 'from' (tile units * Tt) for 'len' metres
+    const mid = from + len / 2, cx = axis === 'x' ? mid : fixed, cz = axis === 'x' ? fixed : mid;
+    const o = makeObject(w); o.position.set(r.ox + cx, 0, r.oz + cz); o.rotation.y = axis === 'x' ? 0 : Math.PI / 2; o.scale.set(len / Tt, 0.85, 1); r.group.add(o);
+    r.cols.push(axis === 'x' ? [r.ox + from, r.oz + fixed - 0.12, r.ox + from + len, r.oz + fixed + 0.12] : [r.ox + fixed - 0.12, r.oz + from, r.ox + fixed + 0.12, r.oz + from + len]);
+  };
   for (let t = a; t < b; t++) {
-    if (gaps.includes(t)) { if (proto.I_Door_02 && chance(0.6)) { const dx = axis === 'x' ? t * Tt + 0.25 : fixed, dz = axis === 'x' ? fixed : t * Tt + 0.25; iput('I_Door_02', dx, dz, axis === 'x' ? Math.PI / 2 : 0, 0, false); } continue; }
-    const cx = axis === 'x' ? t * Tt + Tt / 2 : fixed, cz = axis === 'x' ? fixed : t * Tt + Tt / 2;
-    const o = makeObject(w); o.position.set(r.ox + cx, 0, r.oz + cz); o.rotation.y = axis === 'x' ? 0 : Math.PI / 2; o.scale.y = 0.85; r.group.add(o);
-    r.cols.push(axis === 'x' ? [r.ox + t * Tt, r.oz + fixed - 0.12, r.ox + (t + 1) * Tt, r.oz + fixed + 0.12] : [r.ox + fixed - 0.12, r.oz + t * Tt, r.ox + fixed + 0.12, r.oz + (t + 1) * Tt]);
+    if (gaps.includes(t)) {
+      // door opening sized to the door that is fitted in it, wall pieces close the rest of the tile
+      const rot = axis === 'x' ? Math.PI / 2 : 0, dn = proto.I_Door_02 ? 'I_Door_02' : null;
+      let dw = 1.0; if (dn) { const f = footprint(dn, rot); dw = axis === 'x' ? f.maxx - f.minx : f.maxz - f.minz; }
+      const open = Math.min(1.3, Math.max(0.9, dw + 0.08)), side = (Tt - open) / 2;
+      piece(t * Tt, side); piece(t * Tt + side + open, side);
+      if (dn) { const f = footprint(dn, rot), c0 = t * Tt + side + open / 2; const dx = axis === 'x' ? c0 - (f.minx + f.maxx) / 2 : fixed - (f.minx + f.maxx) / 2, dz = axis === 'x' ? fixed - (f.minz + f.maxz) / 2 : c0 - (f.minz + f.maxz) / 2; const d = iput(dn, dx, dz, rot, 0, false); if (d) d.rotation.y = rot + (axis === 'x' ? -1.2 : 1.2); }
+      continue;
+    }
+    piece(t * Tt, Tt);
   }
 }
 const OFFICE = (x, z, rot = 0) => { iput(pickExisting(['I_OfficeTable_01', 'I_OfficeTable_02']), x, z, rot); iput('I_PC_Screen', x, z - 0.1 * Math.cos(rot), rot, topOf('I_OfficeTable_01'), false); iput('I_PC_Keyboard', x, z + 0.12 * Math.cos(rot), rot, topOf('I_OfficeTable_01'), false); iput(pickExisting(['I_OfficeChair_01', 'I_OfficeChair_02']), x, z + 0.75 * Math.cos(rot), rot + Math.PI); };
@@ -3086,9 +3114,10 @@ function initDoorMarks() {
 }
 
 // ---- lazy asset loading
-let ipackReady = null, ipackDone = false;
-function loadInteriorPack() {
-  if (ipackReady) return ipackReady;
+let ipackReady = null, ipackDone = false, IPFAST = false;
+function loadInteriorPack(bg) {
+  if (!bg) { IPFAST = true; if (!ipackDone) say('Ouverture du bâtiment…'); }
+  if (ipackReady) return ipackReady.then(() => { say(''); });
   ipackReady = (async () => {
     const loader = new GLTFLoader();
     for (const [ix, bin] of [['iindex.json', 'ipack.bin'], ['gindex.json', 'gpack.bin']]) {
@@ -3097,7 +3126,7 @@ function loadInteriorPack() {
     // parsed in small time slices so the game keeps running while the pack streams in (no freeze on the first door)
     let slice = performance.now();
     for (const [name, [off, len]] of Object.entries(idx)) {
-      if (performance.now() - slice > 6) { await new Promise(r => setTimeout(r, 0)); slice = performance.now(); }
+      if (!IPFAST && performance.now() - slice > 6) { await new Promise(r => setTimeout(r, 0)); slice = performance.now(); }
       try {
         const g = await loader.parseAsync(buf.slice(off, off + len), '');
         g.scene.updateMatrixWorld(true);
@@ -3178,9 +3207,16 @@ function shell(W, D, floor, wall, doorI) {
   // wall colliders (south wall leaves the door gap)
   const t = 0.2;
   r.cols.push([r.ox - t, r.oz - t, r.ox + r.w + t, r.oz + t], [r.ox - t, r.oz, r.ox + t, r.oz + r.d], [r.ox + r.w - t, r.oz, r.ox + r.w + t, r.oz + r.d]);
-  r.cols.push([r.ox - t, r.oz + r.d - t, r.ox + doorI * T, r.oz + r.d + t], [r.ox + (doorI + 1) * T, r.oz + r.d - t, r.ox + r.w + t, r.oz + r.d + t]);
-  // door leaf standing open beside the gap + exit marker
-  iput(pickExisting(['I_Door_01', 'I_Door_02', 'I_Door_03']) || 'I_Door_01', doorI * T + 0.1, r.d - 0.05, Math.PI / 2, 0, false);
+  // entrance: 1.3 m opening (one door wide) in the middle of the door tile, wall pieces close the rest
+  const OP = 1.3, sd = (T - OP) / 2;
+  for (const x0 of [doorI * T, doorI * T + sd + OP]) { const o = makeObject(wall); o.position.set(r.ox + x0 + sd / 2, 0, r.oz + r.d); o.rotation.y = Math.PI; o.scale.x = sd / T; r.walls.S.add(o); }
+  r.cols.push([r.ox - t, r.oz + r.d - t, r.ox + doorI * T + sd, r.oz + r.d + t], [r.ox + doorI * T + sd + OP, r.oz + r.d - t, r.ox + r.w + t, r.oz + r.d + t]);
+  // door leaf standing open against the wall beside the opening + exit marker
+  iput(pickExisting(['I_Door_01', 'I_Door_02', 'I_Door_03']) || 'I_Door_01', doorI * T + sd + 0.05, r.d - 0.05, Math.PI / 2, 0, false);
+  // closed volume around the room: nothing behind the walls but a dark building shell (no sky, no void)
+  { const M = 4, bx = new THREE.Mesh(new THREE.BoxGeometry(r.w + 2 * M, 7, r.d + 2 * M), new THREE.MeshBasicMaterial({ color: 0x1b1f27, side: THREE.BackSide, fog: false }));
+    bx.position.set(r.ox + r.w / 2, 3.5 - 0.05, r.oz + r.d / 2); r.group.add(bx);
+    const fl = new THREE.Mesh(new THREE.PlaneGeometry(r.w + 2 * M, r.d + 2 * M).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 1 })); fl.position.set(r.ox + r.w / 2, -0.04, r.oz + r.d / 2); r.group.add(fl); }
   r.exit = new THREE.Vector3(r.ox + doorI * T + T / 2, 0, r.oz + r.d - 0.6);
   r.spawn = new THREE.Vector3(r.ox + doorI * T + T / 2, 0, r.oz + r.d - 1.8);
   const mk = makeMarker(0x3cff8a, 2.2); mk.position.copy(r.exit); mk.scale.set(0.55, 1, 0.55); r.group.add(mk);
@@ -4489,8 +4525,22 @@ function animLOD(dt) {
   if (!SHOT) for (const p of peds) { if (p.away) continue; const d2 = (p.o.position.x - fx) ** 2 + (p.o.position.z - fz) ** 2; const hide = d2 > far2 * 1.6; if (hide !== !!p.o.userData.lodHidden) { p.o.userData.lodHidden = hide; p.o.visible = !hide; } }
 }
 const FPS = { t: 0, n: 0, low: 0, done: false };
+// dynamic resolution: the render scale follows the frame rate (sharp whenever the device can, never lowers lighting or models)
+const DYN = { t: 0, n: 0, s: 0, max: Math.min(devicePixelRatio || 1, MOBILE ? 2 : 2), min: 0.7, fps: 0, ms: 0, worst: 0 };
+function dynRes(dt) {
+  DYN.t += dt; DYN.n++; DYN.worst = Math.max(DYN.worst, dt);
+  if (DYN.t < 1) return; const fps = DYN.n / DYN.t; DYN.fps = fps; DYN.ms = DYN.t / DYN.n * 1000; DYN.t = 0; DYN.n = 0;
+  const mode = localStorage.getItem('cc_res') || 'auto'; if (!DYN.s) DYN.s = Math.min(DYN.max, MOBILE ? 1.5 : Math.min(DYN.max, QS.dpr));
+  let s = DYN.s;
+  if (mode === 'auto') { if (fps < 50) s = Math.max(DYN.min, s - (fps < 35 ? 0.15 : 0.08)); else if (fps > 58 && s < DYN.max) s = Math.min(DYN.max, s + 0.05); }
+  else s = Math.min(DYN.max, +mode * (devicePixelRatio || 1));
+  if (Math.abs(s - renderer.getPixelRatio()) > 0.02) { renderer.setPixelRatio(s); renderer.setSize(innerWidth, innerHeight); } DYN.s = s;
+  const f = document.getElementById('fps'); if (f && f.style.display !== 'none') { f.textContent = Math.round(fps) + ' FPS · ' + DYN.ms.toFixed(1) + ' ms (pire ' + (DYN.worst * 1000).toFixed(0) + ') · résolution ' + Math.round(s / (devicePixelRatio || 1) * 100) + ' % · ' + renderer.info.render.calls + ' appels · ' + (renderer.info.render.triangles / 1e6).toFixed(1) + ' M tri · ' + QUAL; }
+  DYN.worst = 0;
+}
 function adaptQuality(dt) {
-  if (!QAUTO || FPS.done || !game.on) return;
+  dynRes(dt);
+  if (true) return;
   FPS.t += dt; FPS.n++;
   if (FPS.t >= 4) { const fps = FPS.n / FPS.t; FPS.t = 0; FPS.n = 0;
     if (fps < 32) { FPS.low++; if (FPS.low >= 2) { const next = QUAL === 'haut' ? 'moyen' : QUAL === 'moyen' ? 'bas' : null; if (next) { applyQuality(next, true); FPS.low = 0; } else FPS.done = true; } }
@@ -5026,7 +5076,7 @@ function frame() {
 function start() {
   setupPost();
   try { renderer.compile(scene, camera); } catch (e) {} // every city shader compiled during loading, not on first sight
-  if (!SHOT) setTimeout(() => { const idle = window.requestIdleCallback || (f => setTimeout(f, 50)); idle(() => loadInteriorPack().then(() => { ipackDone = true; })); }, 6000);
+  if (!SHOT) setTimeout(() => { const idle = window.requestIdleCallback || (f => setTimeout(f, 50)); idle(() => loadInteriorPack(true).then(() => { ipackDone = true; })); }, 6000);
   if (SHOT) {
     // advance simulation a little so cars/people are spread, then render once
     const step = () => { updateSignals(0.05); updateDayNight(0.05); updateGame(0.05); updatePhone(0.05); updateCars(0.05); updatePeds(0.05); updateSmoke(0.05); updateFlyers(0.05, 0); for (const m of mixers) m.update(0.05); try { updateRiders(); } catch (e) {} };
@@ -5082,6 +5132,7 @@ function start() {
       } else if (auto === 'door') {
         const d = doors[5]; player.pos.set(d.x + d.out[0] * 0.8, SW, d.z + d.out[1] * 0.8); cam.yaw = Math.atan2(d.out[0], d.out[1]); cam.pitch = 0.3; cam.dist = 7; for (let i = 0; i < 4; i++) step();
         window.MSTATE = { prompt: interiorPrompt(), doors: doors.length };
+        if (Q.get('press')) { game.on = true; window.PENDING = (async () => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true })); window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', key: 'e', bubbles: true })); document.getElementById('tE') && 0; await new Promise(r => setTimeout(r, 45000)); console.log('PRESS inside=' + !!inside + ' ui=' + UI.open + ' paused=' + window.PAUSED); })(); }
       } else if (auto === 'job') {
         const kind = Q.get('k') || 'fire';
         const s = jobSpots.find(s => s.kind === kind);

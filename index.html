@@ -41,6 +41,9 @@
   #fadein{position:fixed;inset:0;background:#fff;z-index:90;pointer-events:none;opacity:0;transition:opacity .8s}
   #start .card{max-height:92vh;overflow:auto;box-sizing:border-box}
   body:not(.dev) #top{display:none}
+  #hudBtns{position:fixed;left:12px;top:12px;z-index:15;display:flex;gap:6px}#hudBtns button{width:44px;height:44px;border-radius:12px;border:0;background:rgba(20,26,40,.78);color:#fff;font-size:20px;cursor:pointer}
+  body:not(.dev) #mission{top:64px}
+  #fps{position:fixed;left:112px;top:20px;z-index:15;background:rgba(0,0,0,.6);color:#7cff9e;font:700 12px ui-monospace,monospace;padding:5px 9px;border-radius:8px;pointer-events:none}
   #start .scr{display:none}#start .scr.on{display:block}
   #start .card.wide{max-width:620px}
   #start .col{display:flex;flex-direction:column;gap:10px;margin-top:8px}
@@ -244,14 +247,16 @@
       <tr><td><img class="kk" src="ui/keys/escape.png"></td><td>fermer un menu</td></tr>
       <tr><td>Mobile</td><td>gauche : joystick · droite : caméra</td></tr>
     </table></details></div>
-    <div class="tab" id="tGfx" style="display:none"><div id="qualRow">Qualité graphique : <select id="qualSel" onchange="setQuality(this.value)"><option value="auto">Auto (s'adapte)</option><option value="bas">Bas (téléphones, vieux PC)</option><option value="moyen">Moyen</option><option value="haut">Haut (ombres fines, occlusion)</option></select></div></div>
+    <div class="tab" id="tGfx" style="display:none"><div id="qualRow">Qualité graphique : <select id="qualSel" onchange="setQuality(this.value)"><option value="auto">Auto (s'adapte)</option><option value="bas">Bas (téléphones, vieux PC)</option><option value="moyen">Moyen</option><option value="haut">Haut (ombres fines, occlusion)</option></select></div>
+      <div id="qualRow">Résolution : <select id="resSel"><option value="auto">Auto (nette dès que possible)</option><option value="1">100 % (la plus nette)</option><option value="0.85">85 %</option><option value="0.7">70 %</option></select></div>
+      <label><input type="checkbox" id="fpsChk"> Afficher les FPS</label></div>
     <div class="tab" id="tSnd" style="display:none"><label>Volume général <input type="range" id="volAll" min="0" max="100" value="80"></label><p class="warn">Aucun son n’est fourni dans tes packs : le réglage est enregistré et s’appliquera dès que des sons seront ajoutés.</p></div>
     <div class="row"><button class="btn pri" id="setBack">◀ Retour</button></div>
   </div>
   <div id="ld"><div><i id="ldBar"></i></div><span id="ldTxt">Chargement…</span></div>
 </div>
 <div id="pause"><div class="card"><h2>⏸ Pause</h2><button class="btn" id="pResume">▶ Reprendre</button><button class="btn" id="pSet">⚙️ Paramètres</button><button class="btn" id="pSave">💾 Sauvegarder</button><button class="btn" id="pMenu">🏠 Menu principal (sauvegarde)</button></div></div>
-<div id="hud">
+<div id="hud"><div id="hudBtns"><button id="hbSet" title="Paramètres / pause">⚙️</button><button id="hbFps" title="Afficher / masquer les FPS">📊</button></div><div id="fps" style="display:none"></div>
   <div id="top">
     <button class="btn" id="modeBtn" onclick="setFreeCam(!document.getElementById('modeBtn').textContent.startsWith('Reprendre'))">Caméra libre (C)</button>
     <button class="btn" onclick="setPreset('overview')">Vue d'ensemble</button>
