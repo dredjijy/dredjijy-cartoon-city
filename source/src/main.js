@@ -17,12 +17,12 @@ const Q = new URLSearchParams(location.search);
 // phones / tablets: lighter rendering so the city stays playable
 const MOBILE = !!Q.get('touch') || matchMedia('(pointer:coarse)').matches;
 // graphics quality: bas / moyen / haut (saved). Auto: mobile -> bas, small CPU -> moyen, otherwise haut, then adapted to the measured FPS
-const QSET = { bas: { dpr: 1, shadow: 1024, area: 90, shEvery: 3, lights: 2, ao: false, far: 900, fog: [250, 850], anim: 70 },
-  moyen: { dpr: 1.25, shadow: 2048, area: 150, shEvery: 2, lights: 3, ao: false, far: 1600, fog: [450, 1400], anim: 110 },
-  haut: { dpr: 2, shadow: 4096, area: 260, shEvery: 1, lights: 6, ao: true, far: 3000, fog: [600, 1800], anim: 180 } };
+const QSET = { bas: { dpr: 1, shadow: 1024, area: 80, shEvery: 4, lights: 1, ao: false, far: 230, fog: [90, 210], anim: 35, view: 200, detail: 70 },
+  moyen: { dpr: 1, shadow: 1024, area: 110, shEvery: 3, lights: 2, ao: false, far: 380, fog: [160, 360], anim: 60, view: 340, detail: 120 },
+  haut: { dpr: 2, shadow: 4096, area: 260, shEvery: 1, lights: 6, ao: true, far: 3000, fog: [600, 1800], anim: 180, view: 1e9, detail: 260 } };
 let QUAL = Q.get('q') || (() => { try { return localStorage.getItem('cc_quality'); } catch (e) { return null; } })() || 'auto';
 const QAUTO = QUAL === 'auto';
-if (QAUTO) QUAL = MOBILE ? 'bas' : (navigator.hardwareConcurrency || 4) >= 8 ? 'haut' : 'moyen';
+if (QAUTO) QUAL = MOBILE ? 'moyen' : (navigator.hardwareConcurrency || 4) >= 8 ? 'haut' : 'moyen';
 let QS = QSET[QUAL] || QSET.moyen;
 const SHOT = Q.get('shot');            // headless screenshot preset
 const statusEl = document.getElementById('status');
@@ -41,7 +41,7 @@ renderer.setPixelRatio(SHOT ? 1 : Math.min(devicePixelRatio, QS.dpr));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = SHOT ? true : QS.shadow > 0;
 renderer.shadowMap.type = MOBILE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
@@ -56,8 +56,8 @@ controls.maxDistance = 1100;
 const hemi = new THREE.HemisphereLight(0xdfefff, 0x9a8f7a, 1.25);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff4e0, 2.6);
-sun.castShadow = true;
-sun.shadow.mapSize.set(SHOT ? 4096 : QS.shadow, SHOT ? 4096 : QS.shadow);
+sun.castShadow = !!SHOT || QS.shadow > 0;
+sun.shadow.mapSize.set(SHOT ? 4096 : Math.max(512, QS.shadow), SHOT ? 4096 : Math.max(512, QS.shadow));
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.04;
 const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.35).normalize();
@@ -315,6 +315,7 @@ function put(name, x, y, z, rot = 0, sc = 1, sy) {
   return { key, idx: b.mats.length - 1 };
 }
 function hideInstance(h) {
+  const r = MRANGE[h.key + '#' + h.idx]; if (r) { for (const [me, vo, vc] of r) { const p = me.geometry.attributes.position; for (let i = vo; i < vo + vc; i++) p.setXYZ(i, 0, -50, 0); p.needsUpdate = true; } return; }
   const b = buckets.get(h.key); if (!b || !b.meshes) return;
   _m.makeScale(0, 0, 0);
   for (const im of b.meshes) { im.setMatrixAt(h.idx, _m); im.instanceMatrix.needsUpdate = true; }
@@ -414,9 +415,50 @@ function clearDoorways() {
     for (const b of buckets.values()) if (/^Tree/.test(b.name)) { const n0 = b.mats.length; b.mats = b.mats.filter(mt => { v.setFromMatrixPosition(mt); return !poles.some(([x, z]) => Math.hypot(x - v.x, z - v.z) < 2.2); }); DOORWAY_CLEARED += n0 - b.mats.length; } }
   for (let i = lampHeads.length - 1; i >= 0; i--) if (near(lampHeads[i].x, lampHeads[i].z)) lampHeads.splice(i, 1);
 }
+// ---- static city merged per 112 m chunk and per material: a handful of draw calls per chunk instead of one per model,
+// chunks beyond the view radius are not drawn at all (the city is streamed around the player)
+const CHUNKS = [], MRANGE = {}; const MCH = 112;
+function mergeStatic(items) { // items: [{ geo, m }] -> one indexed geometry (position, normal, uv)
+  let nv = 0, ni = 0; for (const it of items) { nv += it.geo.attributes.position.count; ni += it.geo.index ? it.geo.index.count : it.geo.attributes.position.count; }
+  const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), U = new Float32Array(nv * 2), I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let vo = 0, io = 0; const nm = new THREE.Matrix3(), v = new THREE.Vector3();
+  for (const it of items) { const { geo, m } = it;
+    const p = geo.attributes.position, n = geo.attributes.normal, u = geo.attributes.uv, c = p.count; nm.getNormalMatrix(m); it.vo = vo; it.vc = c;
+    for (let i = 0; i < c; i++) {
+      v.fromBufferAttribute(p, i).applyMatrix4(m); P[(vo + i) * 3] = v.x; P[(vo + i) * 3 + 1] = v.y; P[(vo + i) * 3 + 2] = v.z;
+      if (n) { v.fromBufferAttribute(n, i).applyMatrix3(nm).normalize(); N[(vo + i) * 3] = v.x; N[(vo + i) * 3 + 1] = v.y; N[(vo + i) * 3 + 2] = v.z; } else N[(vo + i) * 3 + 1] = 1;
+      if (u) { U[(vo + i) * 2] = u.getX(i); U[(vo + i) * 2 + 1] = u.getY(i); }
+    }
+    if (geo.index) { const ix = geo.index; for (let i = 0; i < ix.count; i++) I[io + i] = ix.getX(i) + vo; io += ix.count; } else { for (let i = 0; i < c; i++) I[io + i] = vo + i; io += c; }
+    vo += c;
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(N, 3)); g.setAttribute('uv', new THREE.BufferAttribute(U, 2)); g.setIndex(new THREE.BufferAttribute(I, 1));
+  g.computeBoundingSphere(); g.computeBoundingBox(); return g;
+}
 function buildInstances() {
-  let draws = 0;
+  let draws = 0; const keep = new Set(parkedSpots.map(s => s.h.key)), groups = new Map(), mw = new THREE.Matrix4(), tp = new THREE.Vector3();
+  if (!Q.get('nomerge')) for (const [key, b] of buckets) {
+    if (b.mats.length === 0) continue; const parked = keep.has(key);
+    const cast = !/Tile|Road|Grass|Base_Basket|Court|Kerb|Pebles|ParkRoad/.test(b.name);
+    const bs = proto[b.name].bb.getSize(tp), small = !parked && bs.y < 1.6 && Math.max(bs.x, bs.z) < 2.2 && !/Tile|Road|Kerb|ParkRoad|Grass/.test(b.name); // detail props: drawn only near the player
+    for (const part of proto[b.name].parts) for (const bm of b.mats) {
+      tp.setFromMatrixPosition(bm); if (bm.elements[0] === 0 && bm.elements[5] === 0) continue; // hidden instance
+      mw.multiplyMatrices(bm, part.mtx);
+      const S = small ? 56 : MCH, gk = Math.floor((tp.x + HALF + 400) / S) + ',' + Math.floor((tp.z + HALF + 400) / S) + '|' + part.mat.uuid + '|' + (cast ? 1 : 0) + (small ? 's' : '');
+      let g = groups.get(gk); if (!g) groups.set(gk, g = { mat: part.mat, cast, small, items: [] }); g.items.push({ geo: part.geo, m: mw.clone(), hk: parked ? key + '#' + b.mats.indexOf(bm) : null });
+    }
+    b.merged = true;
+  }
+  for (const g of groups.values()) {
+    for (let s = 0; s < g.items.length;) { // keep each merged mesh under ~1M vertices
+      let nv = 0, e = s; while (e < g.items.length && nv < 1e6) { nv += g.items[e].geo.attributes.position.count; e++; }
+      const sl = g.items.slice(s, e), me = new THREE.Mesh(mergeStatic(sl), g.mat); if (g.small) me.userData.small = 1;
+      for (const it of sl) if (it.hk) (MRANGE[it.hk] || (MRANGE[it.hk] = [])).push([me, it.vo, it.vc]); me.castShadow = g.cast; me.receiveShadow = true; me.matrixAutoUpdate = false; me.updateMatrix();
+      scene.add(me); CHUNKS.push(me); draws++; s = e;
+    }
+  }
   for (const b of buckets.values()) {
+    if (b.merged) continue;
     for (const part of proto[b.name].parts) {
       const im = new THREE.InstancedMesh(part.geo, part.mat, b.mats.length);
       (b.meshes || (b.meshes = [])).push(im);
@@ -427,7 +469,26 @@ function buildInstances() {
       scene.add(im); draws++;
     }
   }
+  if (!Q.get('nomerge')) {
+    const loose = new Map(), rm = [];
+    for (const o of scene.children) { if (!o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || CHUNKS.includes(o) || o.userData.dyn || !o.visible) continue; const ty = o.geometry.type; if (!/^(PlaneGeometry|BoxGeometry|ShapeGeometry|BufferGeometry|CylinderGeometry)$/.test(ty) || Array.isArray(o.material) || o.material.type !== 'MeshStandardMaterial' || o.material.map && o.material.map.isCanvasTexture) continue;
+      o.updateMatrixWorld(true); const k = Math.floor((o.position.x + HALF + 400) / MCH) + ',' + Math.floor((o.position.z + HALF + 400) / MCH) + '|' + o.material.uuid + '|' + (o.castShadow ? 1 : 0);
+      let g = loose.get(k); if (!g) loose.set(k, g = { mat: o.material, cast: o.castShadow, items: [] }); g.items.push({ geo: o.geometry, m: o.matrixWorld.clone() }); rm.push(o); }
+    for (const o of rm) scene.remove(o);
+    for (const g of loose.values()) { const me = new THREE.Mesh(mergeStatic(g.items), g.mat); me.castShadow = g.cast; me.receiveShadow = true; me.matrixAutoUpdate = false; scene.add(me); CHUNKS.push(me); draws++; }
+    console.log('LOOSE merged ' + rm.length + ' -> ' + loose.size);
+  }
+  console.log('MERGED chunks=' + CHUNKS.length + ' instanced=' + (draws - CHUNKS.length));
   return draws;
+}
+// draw only what is inside the view radius (fog hides the edge)
+let cullT = 0;
+function cullCity(dt) {
+  cullT -= dt; if (cullT > 0) return; cullT = 0.25;
+  const R = QS.view || 1e9, cx = camera.position.x, cz = camera.position.z;
+  const RS = QS.detail || 1e9;
+  for (const me of CHUNKS) { const s = me.geometry.boundingSphere, d = Math.hypot(s.center.x - cx, s.center.z - cz) - s.radius; me.visible = d < (me.userData.small ? RS : R); }
+  const R2 = (R * 0.8) ** 2; for (const c of cars) { const o = c.obj; o.visible = (o.position.x - cx) ** 2 + (o.position.z - cz) ** 2 < R2; }
 }
 
 // ---------------------------------------------------------------- city layout
@@ -4439,7 +4500,8 @@ function applyQuality(q, auto) {
   QUAL = q; QS = QSET[q]; if (!auto) { try { localStorage.setItem('cc_quality', q); } catch (e) {} }
   renderer.setPixelRatio(Math.min(devicePixelRatio, QS.dpr)); renderer.setSize(innerWidth, innerHeight);
   useAO = QS.ao; camera.far = QS.far; camera.updateProjectionMatrix(); if (scene.fog) { scene.fog.near = QS.fog[0]; scene.fog.far = QS.fog[1]; }
-  if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } sun.shadow.mapSize.set(QS.shadow, QS.shadow);
+  renderer.shadowMap.enabled = QS.shadow > 0; sun.castShadow = QS.shadow > 0; if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } if (QS.shadow) sun.shadow.mapSize.set(QS.shadow, QS.shadow);
+  scene.traverse(o => { if (o.material) [].concat(o.material).forEach(mm => mm.needsUpdate = true); });
   lampLights.forEach((l, i) => { l.visible = i < QS.lights; });
   banner('⚙️ Qualité graphique : ' + q + (auto ? ' (réglée automatiquement)' : ''), 1800);
   const sel = document.getElementById('qualSel'); if (sel && !auto) sel.value = q;
@@ -4955,7 +5017,7 @@ function frame() {
   if (game.on) updatePhone(dt);
   if (!game.on || game.freeCam) controls.update();
   updateCars(dt); updatePeds(dt); updateSmoke(dt); updateFlyers(dt, t);
-  animLOD(dt);
+  animLOD(dt); cullCity(dt);
   if (!SHOT) { shFrame++; renderer.shadowMap.autoUpdate = false; if (shFrame % QS.shEvery === 0) renderer.shadowMap.needsUpdate = true; adaptQuality(dt); }
   updateRiders(); updateWheels(dt); updateActors(dt); if (game.on) updatePedLife(dt);
   updateShadowCam();
@@ -5085,6 +5147,16 @@ function start() {
         const g = {}; for (const n of Object.keys(skinned).sort()) { const k = n.split('_').slice(0, 3).join('_'); if (!g[k] && !/_Z_|Police/.test(n)) g[k] = n; }
         const ov = document.createElement('div'); ov.style.cssText = 'position:fixed;inset:0;z-index:999;background:#fff;display:grid;grid-template-columns:repeat(9,1fr);font:11px sans-serif'; document.body.append(ov);
         for (const [k, n] of Object.entries(g)) ov.insertAdjacentHTML('beforeend', '<div><img style="width:100%" src="' + charThumb(n) + '"><br>' + k + '</div>');
+      } else if (auto === 'stats') {
+        if (Q.get('q')) { camera.far = QS.far; camera.updateProjectionMatrix(); scene.fog.near = QS.fog[0]; scene.fog.far = QS.fog[1]; renderer.shadowMap.enabled = QS.shadow > 0; }
+        player.pos.set(blockC(6), SW, blockC(6) + 21); for (let i = 0; i < 5; i++) step(); cullT = 0; cullCity(1); animLOD(0.05); for (const p of peds) { const d = Math.hypot(p.o.position.x - camera.position.x, p.o.position.z - camera.position.z); p.o.visible = d < QS.anim * 1.26; }
+        renderer.info.autoReset = false; renderer.info.reset(); renderer.render(scene, camera);
+        const c1 = renderer.info.render.calls, t1 = renderer.info.render.triangles; console.log('FRAME calls=' + c1 + ' tris=' + t1); const vis = CHUNKS.filter(c => c.visible).length; let ms = 0; const t0 = performance.now(); for (let k = 0; k < 3; k++) renderer.render(scene, camera); ms = (performance.now() - t0) / 3;
+        const cat = {}; const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+        scene.traverseVisible(o => { if (!o.isMesh) return; if (o.geometry.boundingSphere === null) o.geometry.computeBoundingSphere(); const k = CHUNKS.includes(o) ? 'chunk' : o.isInstancedMesh ? 'inst' : o.isSkinnedMesh ? 'skin' : 'mesh:' + (o.parent && o.parent !== scene ? (o.parent.name || o.parent.type) : o.name || 'top'); const e = cat[k] || (cat[k] = { n: 0, tri: 0 }); e.n++; const ix = o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count; e.tri += ix / 3 * (o.isInstancedMesh ? o.count : 1); });
+        { const nm = {}; const bk = new Map(); for (const [k, b] of buckets) for (const im of (b.meshes || [])) bk.set(im, b.name); scene.traverseVisible(o => { if (o.isInstancedMesh) { const k = (bk.get(o) || '?').replace(/_\d.*$/, ''); nm['I:' + k] = (nm['I:' + k] || 0) + 1; } else if (o.isMesh && o.parent === scene && !CHUNKS.includes(o)) { const k = 'M:' + o.geometry.type + ':' + (o.material.type || ''); nm[k] = (nm[k] || 0) + 1; } }); console.log('NAMES ' + Object.entries(nm).sort((a, b) => b[1] - a[1]).slice(0, 25).map(e => e.join('=')).join(' ')); }
+        console.log('CAT ' + Object.entries(cat).sort((a, b) => b[1].n - a[1].n).slice(0, 14).map(([k, e]) => k + ':' + e.n + '/' + Math.round(e.tri / 1000) + 'k').join(' '));
+        console.log('STATS q=' + QUAL + ' calls=' + renderer.info.render.calls + ' tris=' + renderer.info.render.triangles + ' chunks=' + CHUNKS.length + ' visChunks=' + vis + ' carsVis=' + cars.filter(c => c.obj.visible).length + ' renderMs(sw)=' + ms.toFixed(0) + ' geomMB=' + (renderer.info.memory.geometries));
       } else if (auto === 'lotview') {
         const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
