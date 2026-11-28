@@ -3712,20 +3712,24 @@ function lightState(inter, axis) {
   if (axis === 'x') return t < 10 ? 'g' : t < 12 ? 'y' : 'r';
   return t < 12 ? 'r' : t < 22 ? 'g' : 'y';
 }
-let sigMesh, sigT = 1;
+let sigMesh, sigHalo, sigT = 1; const BLACK = new THREE.Color(0);
 const SIGOFF = { g: new THREE.Color(0x0b3315), y: new THREE.Color(0x3a2a05), r: new THREE.Color(0x3a0909) };
-const SIGCOL = { g: new THREE.Color(0x29ff5a), y: new THREE.Color(0xffc21a), r: new THREE.Color(0xff2a2a) };
+const SIGCOL = { g: new THREE.Color(0x5cff86), y: new THREE.Color(0xffd84a), r: new THREE.Color(0xff4a4a) };
 function initSignals() {
-  sigMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 10, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), signals.length);
+  sigMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.085, 10, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), signals.length);
   signals.forEach((s, i) => { _m.makeTranslation(s.p.x, s.p.y, s.p.z); sigMesh.setMatrixAt(i, _m); sigMesh.setColorAt(i, SIGCOL.r); });
   sigMesh.computeBoundingSphere(); sigMesh.frustumCulled = false;
   scene.add(sigMesh);
+  // glow around the lit lamp (additive, so an unlit lamp's black halo is invisible)
+  sigHalo = new THREE.InstancedMesh(new THREE.SphereGeometry(0.15, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true, opacity: 0.6, depthWrite: false }), signals.length);
+  signals.forEach((s, i) => { _m.makeTranslation(s.p.x, s.p.y, s.p.z); sigHalo.setMatrixAt(i, _m); sigHalo.setColorAt(i, BLACK); });
+  sigHalo.computeBoundingSphere(); sigHalo.frustumCulled = false; scene.add(sigHalo);
 }
 function updateSignals(dt) {
   simTime += dt; sigT += dt;
   if (!sigMesh || sigT < 0.25) return; sigT = 0;
-  signals.forEach((s, i) => sigMesh.setColorAt(i, lightState(s.inter, s.axis) === s.c ? SIGCOL[s.c] : SIGOFF[s.c]));
-  sigMesh.instanceColor.needsUpdate = true;
+  signals.forEach((s, i) => { const on = lightState(s.inter, s.axis) === s.c; sigMesh.setColorAt(i, on ? SIGCOL[s.c] : SIGOFF[s.c]); sigHalo.setColorAt(i, SIGCOL[s.c]); _m.makeTranslation(s.p.x, s.p.y, s.p.z); if (!on) _m.scale(new THREE.Vector3(0, 0, 0)); sigHalo.setMatrixAt(i, _m); });
+  sigMesh.instanceColor.needsUpdate = true; sigHalo.instanceColor.needsUpdate = true; sigHalo.instanceMatrix.needsUpdate = true;
 }
 
 // ================================================================ MISSIONS
