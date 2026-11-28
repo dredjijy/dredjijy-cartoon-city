@@ -3027,9 +3027,9 @@ function lifeAction() {
     if (inside.room.seats) { const s = inside.room.seats.find(s => near(s, 1.3)); if (s) { tableUI(s); return true; } }
     if (L.itask && inside.door.id === L.itask.door && inside.room.counter && near(inside.room.counter, 3)) { const o = L.itask; L.itask = null; o.done = true; L.gps = null; closeMenu(); work(o.sec, o.pay, o.label); return true; }
     if (near(roomSpot('bed'), 2.2)) { if (!home) { banner('Ce n’est pas chez toi', 1200); return true; } sleepNow(100); return true; }
-    if (near(roomSpot('bath'), 2.0)) { if (!home) { banner('Ce n’est pas chez toi', 1200); return true; } if (!L.util) { banner('🚱 Pas d’eau : souscris le pack énergie/eau à la mairie', 1800); return true; } L.needs.hygiene = 100; if (L.sick && Math.random() < 0.3) L.sick = false; banner('🛁 Tu t’es lavé', 1200); return true; }
+    if (near(roomSpot('bath'), 2.0)) { if (!home) { banner('Ce n’est pas chez toi', 1200); return true; } if (utilMigrate(), !L.eau) { banner('🚱 Pas d’eau : souscris un contrat d’eau (téléphone → Internet)', 1800); return true; } L.needs.hygiene = 100; if (L.sick && Math.random() < 0.3) L.sick = false; banner('🛁 Tu t’es lavé', 1200); return true; }
     if (near(roomSpot('chest'), 1.8) && home) { openChest(); return true; }
-    if (near(roomSpot('kitchen'), 2.4)) { if (home && !L.util) { banner('⚡ Pas de gaz ni d’électricité : pack énergie/eau à la mairie', 1800); return true; } openInventory(); return true; }
+    if (near(roomSpot('kitchen'), 2.4)) { if (home && (utilMigrate(), !L.elec)) { banner('⚡ Pas d’électricité ni de gaz : souscris un contrat (téléphone → Internet)', 1800); return true; } openInventory(); return true; }
     if (inside.room.shelves) for (const s of inside.room.shelves) if (near(s, 1.6)) {
       const id = pick(['pain', 'fromage', 'tomate', 'salade', 'oeuf', 'pates', 'viande', 'fruits', 'eau', 'lait', 'jus', 'soda']);
       if (payMoney(ITEMS[id].p)) { give(id); banner('Pris sur l’étagère : ' + ITEMS[id].n + ' (−' + ITEMS[id].p + ' $)', 1200); } return true;
@@ -3148,7 +3148,7 @@ function drawLifeOnMap(c, k) {
 }
 // ---- save / load (this browser)
 function saveGame(quiet) {
-  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { cars: L.owned.filter(c => c.vmp).map(c => ({ n: c.vmp, x: +c.obj.position.x.toFixed(1), z: +c.obj.position.z.toFixed(1), r: +c.obj.rotation.y.toFixed(2), fuel: Math.round(c.fuel), hp: Math.round(c.hp), trunk: c.trunk || {} })), taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, util: L.util, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
+  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { cars: L.owned.filter(c => c.vmp).map(c => ({ n: c.vmp, x: +c.obj.position.x.toFixed(1), z: +c.obj.position.z.toFixed(1), r: +c.obj.rotation.y.toFixed(2), fuel: Math.round(c.fuel), hp: Math.round(c.hp), trunk: c.trunk || {} })), taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, util: L.util, eau: L.eau, elec: L.elec, eauDay: L.eauDay, elecDay: L.elecDay, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
   cloudPush();
 }
 function loadGame() {
@@ -3998,7 +3998,7 @@ function addCounterRing(room) {
 }
 const weekly = (key) => { const d = L[key + 'Day'] ?? GT.day; if (GT.day - d >= 7) { L[key + 'Day'] = GT.day; return true; } if (L[key + 'Day'] == null) L[key + 'Day'] = GT.day; return false; };
 function updateContracts(dt) {
-  if (L.util && L.home !== null && weekly('util')) { if (payBill(UTIL_PRICE)) phoneNotify('🏛️ Mairie', 'Électricité, gaz et eau : −' + UTIL_PRICE + ' $ (semaine)'); else { L.util = false; phoneNotify('🏛️ Mairie', 'Abonnement énergie/eau suspendu (impayé)'); } }
+  utilMigrate(); for (const [k, u] of Object.entries(UTILS)) if (L[k] && L.home !== null && weekly(k)) { if (payBill(u.p)) phoneNotify(u.ic + ' ' + u.n, '−' + u.p + ' $ (semaine)'); else { L[k] = false; phoneNotify(u.ic + ' ' + u.n, 'Contrat suspendu (impayé)'); } }
   if (L.ins && weekly('ins')) { const p = INSURANCE[L.ins].p; if (payBill(p)) phoneNotify('🛡️ Assurance', INSURANCE[L.ins].n + ' : −' + p + ' $ (semaine)'); else { L.ins = null; phoneNotify('🛡️ Assurance', 'Contrat résilié (impayé)'); } }
   if (L.loan > 0 && weekly('loan')) { const p = Math.min(L.loan, Math.ceil(L.loanBase / 10)); if (payBill(p)) { L.loan -= p; phoneNotify('🏦 Banque', 'Remboursement prêt : −' + p + ' $ · reste ' + L.loan + ' $'); } }
   if (L.gymUntil && gameNow() > L.gymUntil) { L.gymUntil = 0; phoneNotify('🏀 Sport', 'Abonnement terminé'); }
@@ -4006,6 +4006,14 @@ function updateContracts(dt) {
   if (L.interim) { L.offerT = (L.offerT ?? 20) - dt; if (L.offerT <= 0) { L.offerT = 90; newOffer(); } }
 }
 const UTIL_PRICE = 35;
+// separate contracts, taken out or cancelled online (phone → Internet): water for the bathroom, electricity + gas for the kitchen
+const UTILS = { eau: { n: 'Eau', ic: '💧', p: 15 }, elec: { n: 'Électricité + gaz', ic: '⚡', p: 20 } };
+function utilMigrate() { if (L.util) { L.eau = L.elec = true; L.util = false; } }
+function utilToggle(k) { utilMigrate(); const u = UTILS[k];
+  if (L[k]) { L[k] = false; phoneNotify('🌐 ' + u.n, 'Contrat résilié'); return; }
+  if (L.home === null) { banner('Il faut un logement pour souscrire', 1500); return; }
+  if (!payBill(u.p)) { banner('Paiement refusé', 1400); return; }
+  L[k] = true; L[k + 'Day'] = GT.day; phoneNotify('🌐 ' + u.n, 'Contrat actif · ' + u.p + ' $ / semaine'); }
 const INSURANCE = { basique: { n: 'Formule Tiers', p: 10, c: 0.3 }, confort: { n: 'Formule Confort', p: 20, c: 0.6 }, premium: { n: 'Tous risques', p: 35, c: 0.9 } };
 function repairPrice(base) { const c = L.ins ? INSURANCE[L.ins].c : 0; return Math.max(1, Math.round(base * (1 - c))); }
 function hpMax() { return L.gymUntil && gameNow() < L.gymUntil ? 120 : 100; }
@@ -4150,11 +4158,10 @@ function counterMenu(door) {
     ...Object.entries(JOBS).map(([j, def]) => { const s = jobSpots.find(s => s.def.job === j); return { t: def.icon + ' ' + def.label + ' — GPS', fn: () => { if (s) { L.gps = s.pos.clone(); L.gpsLabel = def.label; } }, keep: false }; }),
   ], 'Inscris-toi pour recevoir des missions sur ton téléphone (appli Missions).');
   if (k === 'mairie') return openMenu('🏛️ Mairie — accueil', [
-    { sep: 'Électricité + gaz + eau : ' + UTIL_PRICE + ' $ / semaine, prélevé automatiquement' },
-    { t: L.util ? '✔ Abonné — résilier' : '⚡ Souscrire le pack énergie/eau', dis: !L.util && L.home === null, fn: () => { L.util = !L.util; L.utilDay = GT.day; if (L.util && !payMoney(UTIL_PRICE)) L.util = false; phoneNotify('🏛️ Mairie', L.util ? 'Pack énergie/eau actif' : 'Pack résilié'); } },
+    { sep: 'Eau et électricité : contrats à souscrire ou résilier sur ton téléphone (Internet)' },
     { t: L.permis ? '🪪 Permis de conduire ✔' : '🪪 Permis de conduire — 100 $', dis: L.permis, fn: () => { if (payMoney(100)) { L.permis = true; banner('Permis obtenu', 1200); } } },
     { t: '🤝 Aide sociale (+50 $ si moins de 20 $)', dis: M.money + L.bank >= 20 || performance.now() - (L.aide || -1e9) < 300000, fn: () => { M.money += 50; L.aide = performance.now(); updateMissionHud(); } },
-  ], L.home === null ? 'Il faut un logement pour souscrire le pack énergie/eau.' : 'Sans le pack, pas d’eau ni de cuisine chez toi.');
+  ], 'Sans contrat d’eau pas de douche, sans électricité pas de cuisine chez toi.');
   if (k === 'banque') {
     const r = [{ sep: '🏦 Solde : ' + L.bank + ' $ · 💵 Liquide : ' + M.money + ' $' + (L.loan ? ' · Prêt restant : ' + L.loan + ' $' : '') }];
     for (const v of [20, 100, 500]) r.push({ t: 'Déposer ' + v + ' $', dis: M.money < v, fn: () => { M.money -= v; L.bank += v; updateMissionHud(); } });
@@ -5147,7 +5154,7 @@ const APP = {
     for (const id of RESTO_MENU) if (ITEMS[id]) s.append(prow(ITEMS[id].n + ' — ' + (ITEMS[id].p + 4) + ' $', () => { if (payMoney(ITEMS[id].p + 4)) { PH.order = { id, t: 25 }; PH.resto = null; phoneNotify('🛵 Livraison', ITEMS[id].n + ' commandé, livraison dans 25 s'); } }));
   },
   banque(s) {
-    s.append(pel('p', 'pt', '💵 Liquide : ' + M.money + ' $\n🏦 Compte : ' + L.bank + ' $\n🚓 Amendes : ' + L.fines + ' $' + (L.loan ? '\n💳 Prêt restant : ' + L.loan + ' $' : '') + (L.ins ? '\n🛡️ ' + INSURANCE[L.ins].n : '') + (L.util ? '\n⚡ Pack énergie/eau actif' : '')));
+    s.append(pel('p', 'pt', '💵 Liquide : ' + M.money + ' $\n🏦 Compte : ' + L.bank + ' $\n🚓 Amendes : ' + L.fines + ' $' + (L.loan ? '\n💳 Prêt restant : ' + L.loan + ' $' : '') + (L.ins ? '\n🛡️ ' + INSURANCE[L.ins].n : '') + ((L.eau ? '\n💧 Eau active' : '') + (L.elec ? '\n⚡ Électricité active' : ''))));
     for (const n of [20, 100]) { s.append(prow('Déposer ' + n + ' $', () => { if (M.money >= n) { M.money -= n; L.bank += n; } }, M.money < n)); s.append(prow('Retirer ' + n + ' $', () => { if (L.bank >= n) { L.bank -= n; M.money += n; } }, L.bank < n)); }
     s.append(pel('p', 'pt dim', 'Amendes et impôts : appli Services publics (paiement sur place).'));
   },
@@ -5190,6 +5197,8 @@ const APP = {
   },
   fournisseurs(s) { s.append(pel('p', 'pt', '🔒 S’activera avec le système d’entreprise (pas encore dans le jeu).')); },
   internet(s) {
+    utilMigrate(); s.append(pel('p', 'pt', '🔌 Mes contrats' + (L.home === null ? ' · il faut un logement pour souscrire' : '')));
+    for (const [k, u] of Object.entries(UTILS)) s.append(prow(L[k] ? u.ic + ' ' + u.n + ' ✔ actif — résilier' : u.ic + ' Souscrire ' + u.n + ' · ' + u.p + ' $ / semaine', () => utilToggle(k), !L[k] && L.home === null));
     const bar = pel('input', 'psearch'); bar.placeholder = 'Rechercher dans Cartoon City…'; bar.value = PH.web || ''; s.append(bar);
     const out = pel('div'); s.append(out);
     const run = () => { PH.web = bar.value; out.innerHTML = ''; const q = bar.value.toLowerCase().trim(); if (!q) { out.append(pel('p', 'pt dim', 'Ex. : banque, pizza, hôpital, garage, métier, appartement')); return; }
@@ -5364,7 +5373,7 @@ function start() {
         const d = doors.find(d => d.service === (Q.get('k') || 'banque')); player.pos.set(d.x + d.out[0] * 0.8, SW, d.z + d.out[1] * 0.8); step(); M.money = 260; lifeAction(); step();
         window.MSTATE = { prompt: lifePrompt(), open: UI.open, services: doors.filter(d => d.service).length, benches: benches.length };
       } else if (auto === 'home') {
-        const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); M.money = 900; d._viaLobby = true; L.util = true;
+        const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); M.money = 900; d._viaLobby = true; L.eau = L.elec = true;
         window.PENDING = (async () => { await loadInteriorPack(); give('F:I_Sofa_05'); give('F:I_Flower_05'); give('pain'); give('fromage'); give('tomate'); L.needs.hygiene = 10; L.needs.faim = 30;
           await enterDoor(d); const r = inside.room; player.pos.set(r.ox + 6, 0, r.oz + 5); player.heading = 0; startPlace('F:I_Sofa_05'); step(); confirmPlace(); player.pos.set(r.ox + 9, 0, r.oz + 6); startPlace('F:I_Flower_05'); step(); confirmPlace();
           player.pos.copy(r.spots.bath); lifeAction(); player.pos.copy(r.spots.kitchen); lifeAction();
@@ -5485,6 +5494,9 @@ function start() {
           for (let i = 0; i < 4; i++) step(); window.MSTATE = st; console.log('LOBBY '+JSON.stringify(st)); })().catch(e => console.log('ERR ' + e.stack));
       } else if (auto === 'hosp') {
         window.PENDING = (async () => { const hd = hospitalDoor(); await enterDoor(hd); const r = inside.room; player.pos.set(r.counter.x, 0, r.counter.z); const st = { prompt: lifePrompt() }; player.pos.set(r.ox + 7.5, 0, r.oz + 8.5); player.heading = Math.PI; cam.pitch = 1.0; cam.dist = 17; cam.yaw = 0; for (let i = 0; i < 4; i++) step(); console.log('HOSP '+JSON.stringify(st)); })().catch(e => console.log('ERR ' + e.stack));
+      } else if (auto === 'utilnet') {
+        const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); L.bank = 100; L.eau = L.elec = false; game.on = true; togglePhone(true); phoneGo('internet');
+        const r = []; utilToggle('eau'); r.push('eau=' + L.eau + ' bank=' + L.bank); utilToggle('elec'); r.push('elec=' + L.elec + ' bank=' + L.bank); utilToggle('eau'); r.push('eauResil=' + !L.eau); utilToggle('eau'); phoneRender(); console.log('UTILNET ' + r.join(' '));
       } else if (auto === 'phone') {
         game.on = true; M.money = 120; togglePhone(true); const a = Q.get('app'); if (a) phoneGo(a); if (a === 'internet') { PH.web = 'banque'; phoneRender(); }
         window.MSTATE = { apps: document.querySelectorAll('.papp').length, rows: document.querySelectorAll('#phBody .pr').length };
@@ -5582,7 +5594,7 @@ function start() {
       } else if (auto === 'place') {
         game.on = true; const out = {};
         window.PENDING = (async () => {
-          await loadInteriorPack(); const d = doors.filter(x => x.type === 'appart')[6]; setHome(d, false); d._viaLobby = true; L.util = true;
+          await loadInteriorPack(); const d = doors.filter(x => x.type === 'appart')[6]; setHome(d, false); d._viaLobby = true; L.eau = L.elec = true;
           for (const id of ['F:I_Sofa_05', 'F:I_Flower_05', 'F:I_Lamp_02', 'F:I_Sofa_05']) give(id);
           await enterDoor(d); const r = inside.room; out.size = [r.w, r.d];
           const tryAt = (id, x, z) => { player.pos.set(r.ox + x, 0, r.oz + z); player.heading = 0; startPlace(id); step(); if (L.placing) L.placing.g.position.set(r.ox + x, 0, r.oz + z); const ok = confirmPlace(); if (L.placing) { scene.remove(L.placing.g); L.placing = null; } return !!ok; };
