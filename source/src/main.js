@@ -2560,7 +2560,7 @@ function serviceShell(floor) {
 function buildService(kind) {
   const R = curRoom;
   if (kind === 'hotel') { buildAgency('hotel'); return; }
-  const PLAN = { concession: buildConcession, police: buildPolice, mairie: buildMairie, bureaux: buildEntreprise, emploi: () => buildAgency('emploi'), immobilier: () => buildAgency('immobilier'), assurance: () => buildAgency('assurance'), banque: () => buildAgency('banque') }[kind]; if (PLAN) return PLAN();
+  const PLAN = { concession: buildConcession, police: buildPolice, mairie: buildMairie, finance: buildFinance, bureaux: buildEntreprise, emploi: () => buildAgency('emploi'), immobilier: () => buildAgency('immobilier'), assurance: () => buildAgency('assurance'), banque: () => buildAgency('banque') }[kind]; if (PLAN) return PLAN();
   if (kind === 'concession') {
     shell(6, 4, pickExisting(['I_Floor_12', 'I_Floor_08']), pickExisting(IW), 3); curRoom.wallName = 'I_Wall_02';
     partition('x', 3.2, 3, 6, [4]);
@@ -2840,11 +2840,11 @@ const SERVICES = {
   meubles: { label: '🪑 Magasin de meubles', color: '#8e24aa', n: 2 }, emploi: { label: '👔 Agence d’emploi', color: '#3949ab', n: 2 },
   immobilier: { label: '🏠 Agence immobilière', color: '#00897b', n: 2 }, mairie: { label: '🏛️ Mairie', color: '#5d4037', n: 1 },
   police: { label: '🚓 Commissariat', color: '#0d47a1', n: 2 }, bureaux: { label: '💼 Bureaux', color: '#455a64', n: 4 },
-  concession: { label: '🚗 Concession auto', color: '#c62828', n: 2 }, hotel: { label: '🏨 Hôtel', color: '#00897b', n: 3 }, assurance: { label: '🛡️ Assurance auto', color: '#00838f', n: 2 }, station: { label: '⛽ Station-service', color: '#f9a825', n: 0 },
+  concession: { label: '🚗 Concession auto', color: '#c62828', n: 2 }, hotel: { label: '🏨 Hôtel', color: '#00897b', n: 3 }, assurance: { label: '🛡️ Assurance auto', color: '#00838f', n: 2 }, station: { label: '⛽ Station-service', color: '#f9a825', n: 0 }, finance: { label: '📈 Finance · Bourse', color: '#2e7d32', n: 1 },
 };
 // each business goes to a building whose model fits it: shops and cafés in low street-front buildings,
 // offices, bank, insurance and agencies in the tall towers, town hall / police / hotel in mid-rise blocks
-const SERVICE_FIT = { cafe: 'low', supermarche: 'low', pharmacie: 'low', meubles: 'low', banque: 'tall', assurance: 'tall', bureaux: 'tall', immobilier: 'tall', emploi: 'tall', hotel: 'mid', mairie: 'mid', police: 'mid', concession: 'low', station: 'any' };
+const SERVICE_FIT = { cafe: 'low', supermarche: 'low', pharmacie: 'low', meubles: 'low', banque: 'tall', assurance: 'tall', bureaux: 'tall', immobilier: 'tall', emploi: 'tall', hotel: 'mid', mairie: 'mid', police: 'mid', finance: 'tall', concession: 'low', station: 'any' };
 function doorBuilding(d) {
   const px = d.x - d.out[0] * 1.5, pz = d.z - d.out[1] * 1.5;
   const p = placed.find(p => px >= p.x0 - 0.5 && px <= p.x1 + 0.5 && pz >= p.z0 - 0.5 && pz <= p.z1 + 0.5 && proto[p.nm]);
@@ -3024,6 +3024,7 @@ function lifeAction() {
     const near = (s, r = 1.8) => s && Math.hypot(s.x - player.pos.x, s.z - player.pos.z) < r;
     const home = homeRoom();
     if (inside.room.counter && near(inside.room.counter, 1.6)) { counterMenu(inside.door); return true; }
+    if (inside.room.desks) { const i = inside.room.desks.findIndex(s => near(s, 1.0)); if (i >= 0) { deskAction(i); return true; } }
     if (inside.room.seats) { const s = inside.room.seats.find(s => near(s, 1.3)); if (s) { tableUI(s); return true; } }
     if (L.itask && inside.door.id === L.itask.door && inside.room.counter && near(inside.room.counter, 3)) { const o = L.itask; L.itask = null; o.done = true; L.gps = null; closeMenu(); work(o.sec, o.pay, o.label); return true; }
     if (near(roomSpot('bed'), 2.2)) { if (!home) { banner('Ce n’est pas chez toi', 1200); return true; } sleepNow(100); return true; }
@@ -3125,6 +3126,7 @@ function lifePrompt() {
   if (inside) {
     const near = (s, r = 1.8) => s && Math.hypot(s.x - player.pos.x, s.z - player.pos.z) < r;
     const home = homeRoom();
+    if (inside.room.desks) { const i = inside.room.desks.findIndex(s => near(s, 1.0)); if (i >= 0) return finInit().desk === i ? 'E : ordinateur · Bourse' : 'Bureau ' + (i + 1) + ' (non loué)'; }
     if (inside.room.counter && near(inside.room.counter, 1.6)) return 'E : ' + (inside.door.service ? 'guichet · ' + SERVICES[inside.door.service].label : inside.door.type === 'resto' ? 'comptoir (à emporter · livreur)' : 'accueil');
     if (inside.room.seats && inside.room.seats.some(s => near(s, 1.3))) return 'E : s’asseoir et commander';
     if (near(roomSpot('bed'), 2.2)) return home ? 'E : dormir' : 'Lit (pas chez toi)';
@@ -3148,7 +3150,7 @@ function drawLifeOnMap(c, k) {
 }
 // ---- save / load (this browser)
 function saveGame(quiet) {
-  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { cars: L.owned.filter(c => c.vmp).map(c => ({ n: c.vmp, x: +c.obj.position.x.toFixed(1), z: +c.obj.position.z.toFixed(1), r: +c.obj.rotation.y.toFixed(2), fuel: Math.round(c.fuel), hp: Math.round(c.hp), trunk: c.trunk || {} })), taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, util: L.util, eau: L.eau, elec: L.elec, eauDay: L.eauDay, elecDay: L.elecDay, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
+  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { cars: L.owned.filter(c => c.vmp).map(c => ({ n: c.vmp, x: +c.obj.position.x.toFixed(1), z: +c.obj.position.z.toFixed(1), r: +c.obj.rotation.y.toFixed(2), fuel: Math.round(c.fuel), hp: Math.round(c.hp), trunk: c.trunk || {} })), taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, fin: L.fin, util: L.util, eau: L.eau, elec: L.elec, eauDay: L.eauDay, elecDay: L.elecDay, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
   cloudPush();
 }
 function loadGame() {
@@ -3998,6 +4000,7 @@ function addCounterRing(room) {
 }
 const weekly = (key) => { const d = L[key + 'Day'] ?? GT.day; if (GT.day - d >= 7) { L[key + 'Day'] = GT.day; return true; } if (L[key + 'Day'] == null) L[key + 'Day'] = GT.day; return false; };
 function updateContracts(dt) {
+  if (L.fin && L.fin.desk != null && weekly('finDesk')) { if (payBill(FIN.rent)) phoneNotify('📈 Finance', 'Loyer du bureau : −' + FIN.rent + ' $ (semaine)'); else { L.fin.desk = null; phoneNotify('📈 Finance', 'Bureau repris (loyer impayé)'); } }
   utilMigrate(); for (const [k, u] of Object.entries(UTILS)) if (L[k] && L.home !== null && weekly(k)) { if (payBill(u.p)) phoneNotify(u.ic + ' ' + u.n, '−' + u.p + ' $ (semaine)'); else { L[k] = false; phoneNotify(u.ic + ' ' + u.n, 'Contrat suspendu (impayé)'); } }
   if (L.ins && weekly('ins')) { const p = INSURANCE[L.ins].p; if (payBill(p)) phoneNotify('🛡️ Assurance', INSURANCE[L.ins].n + ' : −' + p + ' $ (semaine)'); else { L.ins = null; phoneNotify('🛡️ Assurance', 'Contrat résilié (impayé)'); } }
   if (L.loan > 0 && weekly('loan')) { const p = Math.min(L.loan, Math.ceil(L.loanBase / 10)); if (payBill(p)) { L.loan -= p; phoneNotify('🏦 Banque', 'Remboursement prêt : −' + p + ' $ · reste ' + L.loan + ' $'); } }
@@ -4006,6 +4009,124 @@ function updateContracts(dt) {
   if (L.interim) { L.offerT = (L.offerT ?? 20) - dt; if (L.offerT <= 0) { L.offerT = 90; newOffer(); } }
 }
 const UTIL_PRICE = 35;
+// ================================================================ FINANCE: simulated stock market (no physical stock, fake NPC volumes)
+const FIN = { course: 150, rent: 40, tax: 0.01,
+  SESS: [[360, 480], [660, 780], [960, 1080], [1260, 1380]], // 4 sessions a game day, 2 game hours each
+  ASSETS: [
+    ['petrole', 'Pétrole (baril)', 'Ressources', 80], ['essence', 'Essence (litre)', 'Ressources', 2], ['ble', 'Blé (tonne)', 'Ressources', 220], ['cafe', 'Café (sac)', 'Ressources', 140], ['acier', 'Acier (tonne)', 'Ressources', 600], ['bois', 'Bois (m³)', 'Ressources', 90],
+    ['citadine', 'Voitures citadines', 'Véhicules', 120], ['sport', 'Voitures de sport', 'Véhicules', 480], ['camion', 'Camions', 'Véhicules', 260], ['scooter', 'Scooters', 'Véhicules', 35],
+    ['tours', 'Tours de bureaux', 'Bâtiments', 900], ['apparts', 'Immeubles d’appartements', 'Bâtiments', 650], ['hotels', 'Hôtels', 'Bâtiments', 520],
+    ['e_usine', 'Usine Cartoon', 'Entreprises', 45], ['e_super', 'Supermarchés Cartoon', 'Entreprises', 30], ['e_bus', 'Bus de la Ville', 'Entreprises', 18], ['e_conc', 'Concession Cartoon', 'Entreprises', 60], ['e_cafe', 'Cafés Cartoon', 'Entreprises', 12],
+  ] };
+function finInit() {
+  const F = L.fin || (L.fin = { course: false, desk: null, cash: 0, hold: {}, mk: null });
+  if (!F.mk) { F.mk = {}; for (const [id, , , p] of FIN.ASSETS) F.mk[id] = { p, ref: p, h: [p], vol: rr(0.004, 0.012), flow: 0, drift: 0 }; F.last = -1; F.wasOpen = false; }
+  for (const [id, , , p] of FIN.ASSETS) if (!F.mk[id]) F.mk[id] = { p, ref: p, h: [p], vol: 0.008, flow: 0, drift: 0 };
+  return F;
+}
+const finSession = () => { const m = Math.floor(GT.min) % 1440; const i = FIN.SESS.findIndex(([a, b]) => m >= a && m < b); return i; };
+function finNext() { const m = Math.floor(GT.min) % 1440; for (const [a] of FIN.SESS) if (a > m) return a; return FIN.SESS[0][0] + 1440; }
+const gauss = () => { let u = 0; for (let k = 0; k < 6; k++) u += Math.random(); return (u - 3) / 1.22; };
+const ASSET = (id) => FIN.ASSETS.find(a => a[0] === id);
+// random news: mostly small moves, sometimes a big shock (up to −90 %), on one asset or a whole category
+function finEvent(F, big) {
+  const a = pick(FIN.ASSETS), cat = Math.random() < 0.25, up = Math.random() < 0.5;
+  const mag = big ? rr(0.35, up ? 1.2 : 0.9) : rr(0.04, 0.25);
+  const k = up ? 1 + mag : 1 - Math.min(0.9, mag);
+  const list = cat ? FIN.ASSETS.filter(x => x[2] === a[2]) : [a];
+  for (const x of list) { const q = F.mk[x[0]]; q.p = Math.max(0.05, +(q.p * (cat ? 1 + (k - 1) * rr(0.5, 1) : k)).toFixed(2)); }
+  const why = up ? pick(['forte demande', 'pénurie annoncée', 'rachat surprise', 'record de ventes', 'rumeur de fusion', 'nouveau contrat']) : pick(['effondrement de la demande', 'scandale', 'surproduction', 'grève', 'faillite d’un concurrent qui inonde le marché', 'mauvais résultats']);
+  const name = cat ? 'Secteur ' + a[2] : a[1];
+  const pc = Math.round((k - 1) * 100);
+  F.news = F.news || []; F.news.unshift(hourStr() + ' · ' + name + ' ' + (pc > 0 ? '+' : '') + pc + ' % (' + why + ')'); F.news.length = Math.min(F.news.length, 12);
+  phoneNotify('📈 Bourse', name + ' ' + (pc > 0 ? '▲ +' : '▼ ') + pc + ' % · ' + why);
+}
+let finT = 0;
+function marketTick() {
+  const F = L.fin; if (!F || !F.mk) return;
+  const now = Math.floor(gameNow()); if (F.last < 0) F.last = now;
+  let steps = Math.min(240, now - F.last); if (steps <= 0) return; F.last = now;
+  while (steps-- > 0) {
+    const open = finSession() >= 0;
+    if (open && !F.wasOpen) { // opening: the gap reflects the (fake) NPC orders counted during the close plus the player's own net buying
+      for (const [id] of FIN.ASSETS) { const q = F.mk[id]; const buy = Math.round(rr(200, 5000)), sell = Math.round(rr(200, 5000)); const press = (buy - sell) / (buy + sell) * rr(0.02, 0.12) + Math.max(-0.15, Math.min(0.15, q.flow * q.p / 40000)) + gauss() * 0.03; q.p = Math.max(0.05, +(q.p * (1 + press)).toFixed(2)); q.ref = q.p; q.buy = buy; q.sell = sell; q.flow = 0; q.drift = gauss() * 0.0015; }
+      if (Math.random() < 0.55) finEvent(F, Math.random() < 0.25);
+      phoneNotify('📈 Bourse', 'Ouverture de la séance (' + hourStr() + ')');
+    }
+    if (!open && F.wasOpen) phoneNotify('📈 Bourse', 'Clôture de la séance · prochaine ouverture ' + String(Math.floor(finNext() % 1440 / 60)).padStart(2, '0') + ':00');
+    F.wasOpen = open;
+    if (open) {
+      for (const [id] of FIN.ASSETS) { const q = F.mk[id]; q.p = Math.max(0.05, +(q.p * (1 + q.drift + gauss() * q.vol)).toFixed(2)); }
+      if (Math.random() < 0.012) finEvent(F, Math.random() < 0.2); // news during the session
+    }
+    if ((now - steps) % 15 === 0 || steps === 0) for (const [id] of FIN.ASSETS) { const q = F.mk[id], h = q.h; if (h[h.length - 1] !== q.p) { h.push(q.p); if (h.length > 96) h.shift(); } }
+  }
+  if (BOURSE.open) bourseRender();
+}
+function financeMenu() {
+  const F = finInit(); const rows = [];
+  rows.push({ sep: '📚 Formation trader' });
+  rows.push({ t: F.course ? '✔ Formation suivie — relire' : '🎓 Suivre la formation — ' + FIN.course + ' $', fn: () => { if (!F.course) { if (!payMoney(FIN.course)) return; F.course = true; } financeCourse(); }, keep: true });
+  rows.push({ sep: '🏢 Bureau' + (F.desk != null ? ' : n°' + (F.desk + 1) : '') });
+  if (F.desk == null) rows.push({ t: '🔑 Louer un bureau — ' + FIN.rent + ' $ / semaine', dis: !F.course, fn: () => { if (!payMoney(FIN.rent)) return; F.desk = Math.floor(Math.random() * 4); L.finDeskDay = GT.day; banner('🔑 Bureau n°' + (F.desk + 1) + ' loué — va à l’ordinateur (cercle vert)', 2200); financeMenu(); }, keep: true });
+  else rows.push({ t: '❌ Rendre le bureau', fn: () => { F.desk = null; financeMenu(); }, keep: true });
+  rows.push({ sep: '💼 Compte Finance : ' + Math.round(F.cash) + ' $' });
+  for (const v of [100, 500, 2000]) rows.push({ t: '⬅ Virer ' + v + ' $ depuis la banque', dis: L.bank < v, fn: () => { L.bank -= v; F.cash += v; updateMissionHud(); financeMenu(); }, keep: true });
+  rows.push({ t: '➡ Retirer tous les gains vers la banque (' + Math.round(F.cash) + ' $)', dis: F.cash < 1, fn: () => { const v = Math.floor(F.cash); F.cash -= v; L.bank += v; updateMissionHud(); banner('🏦 +' + v + ' $ sur ton compte', 1600); financeMenu(); }, keep: true });
+  openMenu('📈 Finance — accueil', rows, F.course ? (F.desk == null ? 'Loue un bureau pour accéder à la bourse.' : 'Ton bureau t’attend : ordinateur dans le cercle vert.') : 'La formation est obligatoire avant de louer un bureau.');
+}
+function financeCourse() {
+  openMenu('🎓 Formation trader', [
+    { sep: '1 · Le compte Finance' }, { t: 'Vire de l’argent de ta banque vers ton compte Finance au comptoir. Tu achètes avec ce compte et tu retires tes gains vers la banque.', dis: true },
+    { sep: '2 · Acheter / vendre' }, { t: 'À l’ordinateur de ton bureau : choisis un actif, une quantité, puis Acheter. Tu possèdes des parts, sans stock réel. Vends quand le prix est plus haut que ton prix moyen = bénéfice.', dis: true },
+    { sep: '3 · Taxe' }, { t: 'Chaque achat et chaque vente coûte ' + FIN.tax * 100 + ' % du montant.', dis: true },
+    { sep: '4 · Séances' }, { t: '4 séances par jour : 06h–08h, 11h–13h, 16h–18h, 21h–23h. Hors séance, impossible d’acheter ou vendre. À la réouverture, le prix bouge selon les achats/ventes de la séance précédente (et les tiens).', dis: true },
+    { sep: '5 · Risques' }, { t: 'Des événements imprévus font bondir ou chuter les prix (parfois −90 %). ▲ vert = hausse, ▼ rouge = baisse. Ne mets jamais tout sur un seul actif.', dis: true },
+    { t: '← Retour à l’accueil', fn: () => financeMenu(), keep: true },
+  ]);
+}
+function deskAction(i) {
+  const F = finInit();
+  if (!F.course) return banner('🎓 Formation requise : passe au comptoir', 1600);
+  if (F.desk !== i) return banner(F.desk == null ? '🔑 Loue un bureau au comptoir' : 'Ce n’est pas ton bureau (le tien : n°' + (F.desk + 1) + ')', 1600);
+  openBourse();
+}
+// ---- trading screen
+const BOURSE = { open: false, sel: 'petrole', cat: 'Tous', qty: 1 };
+function openBourse() { finInit(); BOURSE.open = true; UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock(); document.getElementById('bourse').style.display = 'flex'; bourseRender(); }
+function closeBourse() { BOURSE.open = false; UI.open = false; document.getElementById('bourse').style.display = 'none'; }
+function finTrade(id, n) {
+  const F = L.fin, q = F.mk[id]; if (finSession() < 0) return banner('🔒 Bourse fermée', 1200);
+  const h = F.hold[id] || (F.hold[id] = { n: 0, avg: 0 });
+  if (n > 0) { const cost = q.p * n * (1 + FIN.tax); if (cost > F.cash) return banner('Solde Finance insuffisant', 1200); F.cash -= cost; h.avg = (h.avg * h.n + q.p * n) / (h.n + n); h.n += n; }
+  else { n = Math.min(h.n, -n); if (!n) return; F.cash += q.p * n * (1 - FIN.tax); h.n -= n; if (!h.n) delete F.hold[id]; n = -n; }
+  q.flow += n; bourseRender();
+}
+function spark(h, w, hgt, col) { if (h.length < 2) return ''; const mn = Math.min(...h), mx = Math.max(...h), d = mx - mn || 1; const pts = h.map((v, i) => (i / (h.length - 1) * w).toFixed(1) + ',' + (hgt - (v - mn) / d * (hgt - 4) - 2).toFixed(1)).join(' '); return '<svg viewBox="0 0 ' + w + ' ' + hgt + '" width="' + w + '" height="' + hgt + '"><polyline fill="none" stroke="' + col + '" stroke-width="2" points="' + pts + '"/></svg>'; }
+function bourseRender() {
+  const F = L.fin, el = document.getElementById('bourse'); if (!el || !F) return;
+  const si = finSession(), open = si >= 0;
+  const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(2);
+  let pv = 0, pnl = 0; for (const [id, h] of Object.entries(F.hold)) { pv += h.n * F.mk[id].p; pnl += h.n * (F.mk[id].p - h.avg); }
+  const cats = ['Tous', ...new Set(FIN.ASSETS.map(a => a[2]))];
+  let html = '<div class="bh"><b>📈 Bourse Cartoon</b><span class="' + (open ? 'up' : 'dn') + '">' + (open ? '● OUVERTE · fermeture ' + String(Math.floor(FIN.SESS[si][1] / 60)).padStart(2, '0') + ':00' : '● FERMÉE · ouverture ' + String(Math.floor(finNext() % 1440 / 60)).padStart(2, '0') + ':00') + '</span><span>' + hourStr() + '</span><button id="bxClose">✕</button></div>';
+  html += '<div class="bs">💼 Compte Finance <b>' + Math.round(F.cash) + ' $</b> · Portefeuille <b>' + Math.round(pv) + ' $</b> · Gain/perte <b class="' + (pnl >= 0 ? 'up' : 'dn') + '">' + (pnl >= 0 ? '+' : '') + Math.round(pnl) + ' $</b></div>';
+  html += '<div class="bc">' + cats.map(c => '<button data-cat="' + c + '" class="' + (BOURSE.cat === c ? 'on' : '') + '">' + c + '</button>').join('') + '</div><div class="bm"><div class="bl">';
+  for (const [id, n, c] of FIN.ASSETS) { if (BOURSE.cat !== 'Tous' && BOURSE.cat !== c) continue; const q = F.mk[id], ch = (q.p / q.ref - 1) * 100, up = ch >= 0;
+    html += '<button class="br' + (BOURSE.sel === id ? ' on' : '') + '" data-id="' + id + '"><span>' + n + (F.hold[id] ? ' · <i>' + F.hold[id].n + '</i>' : '') + '</span>' + spark(q.h.slice(-30), 70, 22, up ? '#16a34a' : '#dc2626') + '<b>' + fmt(q.p) + ' $</b><em class="' + (up ? 'up' : 'dn') + '">' + (up ? '▲ +' : '▼ ') + ch.toFixed(1) + ' %</em></button>'; }
+  const q = F.mk[BOURSE.sel], a = ASSET(BOURSE.sel), h = F.hold[BOURSE.sel], ch = (q.p / q.ref - 1) * 100, up = ch >= 0;
+  html += '</div><div class="bd"><b>' + a[1] + '</b> <small>' + a[2] + '</small><div class="bp">' + fmt(q.p) + ' $ <em class="' + (up ? 'up' : 'dn') + '">' + (up ? '▲ +' : '▼ ') + ch.toFixed(1) + ' %</em></div>' + spark(q.h, 300, 110, up ? '#16a34a' : '#dc2626');
+  html += '<p class="bx">Séance précédente : ' + (q.buy || 0) + ' achats · ' + (q.sell || 0) + ' ventes<br>Tu possèdes : <b>' + (h ? h.n + '</b> (prix moyen ' + fmt(h.avg) + ' $ · ' + ((q.p - h.avg) * h.n >= 0 ? '+' : '') + Math.round((q.p - h.avg) * h.n) + ' $)' : '0</b>') + '</p>';
+  html += '<div class="bq">' + [1, 10, 100, 1000].map(v => '<button data-q="' + v + '" class="' + (BOURSE.qty === v ? 'on' : '') + '">×' + v + '</button>').join('') + '</div>';
+  html += '<div class="bt"><button id="bxBuy" ' + (open ? '' : 'disabled') + '>Acheter ' + BOURSE.qty + ' · ' + Math.round(q.p * BOURSE.qty * (1 + FIN.tax)) + ' $</button><button id="bxSell" ' + (open && h ? '' : 'disabled') + '>Vendre ' + Math.min(BOURSE.qty, h ? h.n : 0) + '</button></div><p class="bx">Taxe ' + FIN.tax * 100 + ' % sur chaque opération</p>';
+  html += '<div class="bn">' + ((F.news || []).slice(0, 5).map(n => '<div>📰 ' + n + '</div>').join('') || '<div>Pas d’actualité</div>') + '</div></div></div>';
+  el.innerHTML = html;
+  el.querySelector('#bxClose').onclick = closeBourse;
+  el.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { BOURSE.cat = b.dataset.cat; bourseRender(); });
+  el.querySelectorAll('[data-id]').forEach(b => b.onclick = () => { BOURSE.sel = b.dataset.id; bourseRender(); });
+  el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { BOURSE.qty = +b.dataset.q; bourseRender(); });
+  const bb = el.querySelector('#bxBuy'), bs = el.querySelector('#bxSell'); if (bb) bb.onclick = () => finTrade(BOURSE.sel, BOURSE.qty); if (bs) bs.onclick = () => finTrade(BOURSE.sel, -BOURSE.qty);
+}
 // separate contracts, taken out or cancelled online (phone → Internet): water for the bathroom, electricity + gas for the kitchen
 const UTILS = { eau: { n: 'Eau', ic: '💧', p: 15 }, elec: { n: 'Électricité + gaz', ic: '⚡', p: 20 } };
 function utilMigrate() { if (L.util) { L.eau = L.elec = true; L.util = false; } }
@@ -4150,6 +4271,7 @@ function counterMenu(door) {
   const k = door.service || door.type;
   if (k === 'concession') return VCAT.length ? dealerUI2(door) : dealerUI(door);
   if (k === 'hotel') return hotelMenu(door);
+  if (k === 'finance') return financeMenu();
   if (k === 'resto') return restoCounterMenu();
   if (k === 'emploi') return openMenu('👔 Agence d’intérim', [
     { t: L.interim ? '✔ Inscrit à l’agence' : '📝 S’inscrire (gratuit)', dis: L.interim, fn: () => { L.interim = true; L.offerT = 3; phoneNotify('👔 Intérim', 'Inscription validée : les offres arrivent sur ton téléphone'); } },
@@ -4386,6 +4508,17 @@ function buildPolice() {
 }
 
 // ---- TOWN HALL (plan: Secrétariat, Salle du conseil, Bureau du maire, État civil, Archives)
+function buildFinance() {
+  const R = curRoom;
+  planShell('I_Floor_12', 'I_Wall_03');
+  partition('x', 5, 0, 7, [1, 5]); partition('z', 5, 0, 2, []); partition('z', 12.5, 0, 2, []);
+  partition('z', 5, 2, 6, [3]); partition('z', 12.5, 2, 6, [3]);
+  const D = [[2.5, 2.2, 0.3, 'Bureau 1'], [2.5, 8.0, 5.3, 'Bureau 2'], [15, 2.2, 0.3, 'Bureau 3'], [15, 8.0, 5.3, 'Bureau 4']];
+  R.desks = [];
+  for (const [x, z, lz, lab] of D) { labelAt(lab, x, lz); OFFICE(x, z); PLANT('small', x + 1.9, lz + 0.4); const p = new THREE.Vector3(R.ox + x, 0, R.oz + z + 1.25); R.desks.push(p); const r = stopRing(0x22c55e); r.scale.setScalar(0.32); r.position.set(p.x, 0.03, p.z); R.group.add(r); }
+  labelAt('Salle des marchés', 8.75, 0.3); for (const dx of [-2.2, 0, 2.2]) { OFFICE(8.75 + dx, 1.6); if (chance(0.8)) roomNPC(8.75 + dx, 2.4, 'Idle_B-loop', Math.PI); } iput('I_TV', 8.75, 0.25, 0, 1.2, false); PLANT('large', 5.6, 0.6); PLANT('large', 11.9, 0.6);
+  labelAt('📈 Finance · accueil', 8.75, 5.3); counter(8.75, 6.6, 3); roomNPC(8.75, 5.95, 'Idle_A-loop', 0); waitingArea();
+}
 function buildMairie() {
   planShell('I_Floor_08', 'I_Wall_05');
   partition('x', 5, 0, 7, [1, 5]); partition('z', 5, 0, 2, []); partition('z', 12.5, 0, 2, []);
@@ -5263,7 +5396,7 @@ function updatePhone(dt) {
   PH.battery = Math.max(0, PH.battery - dt * (PH.open ? 0.12 : 0.02));
   if (inside) PH.battery = Math.min(100, PH.battery + dt * 2);
   if (PH.order) { PH.order.t -= dt; if (PH.order.t <= 0) { chest[PH.order.id] = (chest[PH.order.id] || 0) + 1; phoneNotify('🛵 Livraison', ITEMS[PH.order.id].n + ' livré chez toi (coffre)'); PH.order = null; } }
-  updatePaid(); updateImpound(dt); updateGates(dt); updateGpsStrip(); updateContracts(dt); updateTaxes(); updatePrison(); updateSirens(performance.now() / 1000); updateCallouts(dt, performance.now() / 1000);
+  updatePaid(); updateImpound(dt); updateGates(dt); updateGpsStrip(); updateContracts(dt); try { marketTick(); } catch (e) {} updateTaxes(); updatePrison(); updateSirens(performance.now() / 1000); updateCallouts(dt, performance.now() / 1000);
   if (M.active !== PH.lastMis) { PH.lastMis = M.active; if (M.active) gpsOpen(); }
   if (J.task !== PH.lastTask) { PH.lastTask = J.task; if (J.task) phoneNotify(JOBS[J.job] ? JOBS[J.job].icon + ' ' + JOBS[J.job].label : '💼 Métier', J.task.goal || 'Nouvelle tâche'); }
   phTick += dt; if (PH.open && phTick > (PH.app === 'carte' ? 0.1 : 0.5)) { phTick = 0; if (PH.app === 'carte') { drawPhoneMap(); drawPhoneGps(); } else { const sb = $('phStatus'); if (sb && sb.firstChild) { sb.firstChild.textContent = String(Math.floor(GT.min / 60)).padStart(2, '0') + ':' + String(Math.floor(GT.min % 60)).padStart(2, '0'); if (sb.children[1]) sb.children[1].textContent = '💵 ' + M.money + ' $'; } } }
@@ -5513,6 +5646,12 @@ function start() {
         for (const n of Object.keys(names).slice(0, 40)) { const o = makeObject(n); const sp = vehicleSpec({ obj: o }); rep.push(n + '=' + sp.vmax); } rep.sort();
         console.log('VSPEC ' + rep.join(' '));
         { const nm = Object.keys(names).find(n => new RegExp(Q.get('veh') || '^Car_').test(n)); const o = makeObject(nm); scene.add(o); player.inCar = { obj: o, speed: 0 }; player.ch.o.visible = false; } { const a = cars.splice(+(Q.get('rx') || 0), 1)[0]; a.obj.visible = false; player.inCar.obj.position.copy(a.obj.position); player.inCar.obj.rotation.y = a.obj.rotation.y; for (const c of cars) c.obj.position.y -= 1e4; } keys.add('KeyW'); const tr = []; for (let i = 0; i < 200; i++) { updatePlayerCar(0.05); if (i % 40 == 0) tr.push((player.inCar.speed * 3.6).toFixed(0) + '/' + JSON.stringify(axis())); } console.log('TR ' + tr.join(' ')); keys.delete('KeyW'); console.log('DRIVE ' + (player.inCar && player.inCar.obj.userData.name) + ' kmh=' + Math.round(player.inCar.speed * 3.6) + ' vmax=' + vehicleSpec(player.inCar).vmax); player.inCar.speed = 0;
+      } else if (auto === 'fin') {
+        window.PENDING = (async () => { const d = doors.find(d => d.service === 'finance'); console.log('FINDOOR ' + !!d + ' dest=' + destinations().some(x => /Finance/.test(x[0]))); await enterDoor(d); const F = finInit(); L.bank = 5000; M.money = 500;
+          financeMenu(); F.course = true; F.desk = 1; F.cash = 3000; GT.min = 11 * 60 + 10; marketTick(); const r = inside.room; player.pos.copy(r.desks[1]); const pr = lifePrompt(); closeMenu(); lifeAction();
+          finTrade('petrole', 10); const h1 = JSON.stringify(F.hold); GT.min += 60; GT.day += 0; marketTick(); finTrade('petrole', -5);
+          console.log('FIN desks=' + r.desks.length + ' prompt=' + pr + ' open=' + BOURSE.open + ' hold=' + h1 + ' cash=' + Math.round(F.cash) + ' after=' + JSON.stringify(F.hold) + ' news=' + (F.news || []).length);
+          if (Q.get('view') === 'room') { closeBourse(); setFreeCam(true); camera.position.set(r.ox + 8.75, 14, r.oz + 16); controls.target.set(r.ox + 8.75, 0, r.oz + 6); controls.update(); } })();
       } else if (auto === 'utilnet') {
         const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); L.bank = 100; L.eau = L.elec = false; game.on = true; togglePhone(true); phoneGo('internet');
         const r = []; utilToggle('eau'); r.push('eau=' + L.eau + ' bank=' + L.bank); utilToggle('elec'); r.push('elec=' + L.elec + ' bank=' + L.bank); utilToggle('eau'); r.push('eauResil=' + !L.eau); utilToggle('eau'); phoneRender(); console.log('UTILNET ' + r.join(' '));

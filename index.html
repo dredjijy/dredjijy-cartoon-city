@@ -136,6 +136,16 @@
   body.touch #help{display:none}
   #joy{position:fixed;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;border:3px solid rgba(255,255,255,.8);background:rgba(29,39,64,.25);pointer-events:none;display:none;z-index:30}
   #joy i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:#ffd54f;border:3px solid #1d2740}
+  #bourse{position:fixed;inset:3vh 3vw;z-index:45;background:#0f172a;color:#e2e8f0;border-radius:16px;display:none;flex-direction:column;padding:12px;font:600 13px system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  #bourse .up{color:#22c55e}#bourse .dn{color:#ef4444}#bourse button{font:inherit;cursor:pointer}
+  #bourse .bh{display:flex;gap:14px;align-items:center}#bourse .bh b{font-size:18px}#bourse .bh button{margin-left:auto;background:#334155;color:#fff;border:0;border-radius:8px;width:34px;height:34px}
+  #bourse .bs{margin:6px 0;color:#94a3b8}#bourse .bs b{color:#fff}#bourse .bc{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}#bourse .bc button,#bourse .bq button{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:8px;padding:4px 10px}#bourse .bc .on,#bourse .bq .on{background:#2563eb;color:#fff}
+  #bourse .bm{display:flex;gap:10px;flex:1;min-height:0}#bourse .bl{flex:1.2;overflow:auto;display:flex;flex-direction:column;gap:3px}
+  #bourse .br{display:grid;grid-template-columns:1fr 72px 70px 72px;align-items:center;gap:6px;background:#1e293b;color:#e2e8f0;border:1px solid transparent;border-radius:8px;padding:4px 8px;text-align:left}#bourse .br.on{border-color:#3b82f6}#bourse .br b{text-align:right}#bourse .br em,#bourse .bp em{font-style:normal;text-align:right}#bourse .br i{color:#facc15;font-style:normal}
+  #bourse .bd{flex:1;overflow:auto;background:#1e293b;border-radius:10px;padding:10px}#bourse .bd svg{width:100%;height:110px}#bourse .bp{font-size:24px;margin:4px 0}#bourse .bx{color:#94a3b8;margin:6px 0}
+  #bourse .bq{display:flex;gap:6px}#bourse .bt{display:flex;gap:8px;margin-top:8px}#bourse .bt button{flex:1;border:0;border-radius:10px;padding:10px;color:#fff;font-size:14px}#bourse #bxBuy{background:#16a34a}#bourse #bxSell{background:#dc2626}#bourse .bt button:disabled{opacity:.35}
+  #bourse .bn{margin-top:8px;color:#cbd5e1;font-size:12px}#bourse .bn div{padding:2px 0;border-top:1px solid #334155}
+  @media(max-width:700px),(max-height:500px){#bourse{inset:4px}#bourse .bm{flex-direction:column}#bourse .bd svg{height:80px}}
   .tb.dv{display:none;flex-direction:column;align-items:center;justify-content:center;width:84px;height:84px;font-size:26px;line-height:1}.tb.dv small{font-size:11px;margin-top:2px}
   body.touch.driving .tb:not(.dv){display:none!important}body.touch.driving .tb.dv{display:flex}
   #dGas{right:26px;bottom:26px;background:#4ade80;width:96px;height:96px}#dRev{right:40px;bottom:140px;background:#e2e8f0}#dBrake{left:26px;bottom:26px;background:#f87171;width:96px;height:96px}#dExit{left:40px;bottom:140px;background:#ffd54f}
@@ -287,6 +297,7 @@
   <div id="touchUI"><div id="joy"><i></i></div>
   <button class="tb" id="tE" data-k="KeyE">E</button><button class="tb dv" id="dGas" data-k="KeyW" data-hold="1">▲<small>Accél.</small></button><button class="tb dv" id="dRev" data-k="KeyS" data-hold="1">R<small>Arrière</small></button><button class="tb dv" id="dBrake" data-k="Space" data-hold="1">■<small>Frein</small></button><button class="tb dv" id="dExit" data-k="KeyE">🚪<small>Sortir</small></button><button class="tb" id="tRun" data-k="ShiftLeft" data-hold="1">🏃</button><button class="tb" id="tJump" data-k="Space" data-hold="1">⤒</button>
   <button class="tb" id="tInv" data-k="KeyI">🎒</button><button class="tb" id="tR" data-k="KeyR">↻</button><button class="tb" id="tX" data-k="KeyX">✋</button><button class="tb" id="tCam" data-k="KeyC">🎥</button><button class="tb" id="tZin" data-zoom="0.8">＋</button><button class="tb" id="tZout" data-zoom="1.25">－</button></div>
+  <div id="bourse"></div>
   <div id="rotate">📱↻<br>Tourne ton téléphone en mode paysage pour jouer</div>
   <div id="gpsStrip"><i>⬆</i><div><b></b><span></span></div></div>
   <button id="phOpen">📱<span id="phBadge"></span></button>
