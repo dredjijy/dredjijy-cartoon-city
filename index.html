@@ -315,6 +315,11 @@
   <div id="prompt"></div>
   <div id="help">ZQSD/WASD : bouger · Maj : courir · Espace : sauter/freiner · E : interagir · I : inventaire · Clic + souris : caméra · C : caméra libre</div>
 </div>
-<script src="city.js"></script>
+<script>
+// title button works at once, before the 1.2 MB game script is downloaded (that script replaces this handler when it runs)
+document.getElementById('titleGo').onclick = function () { try { var d = document.documentElement; if (matchMedia('(pointer:coarse)').matches && d.requestFullscreen) d.requestFullscreen().catch(function () {}); } catch (e) {}
+  document.querySelectorAll('#start .scr').forEach(function (s) { s.classList.toggle('on', s.id === 'scrAcc'); }); };
+</script>
+<script src="city.js" defer></script>
 </body>
 </html>
