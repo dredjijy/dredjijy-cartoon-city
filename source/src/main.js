@@ -1529,8 +1529,8 @@ function updatePlayerCar(dt) {
   const car = player.inCar, o = car.obj;
   const { f, s } = axis();
   const brake = keys.has('Space');
-  const MAXF = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 30 : 20) * (car.power ? Math.max(0.55, Math.min(1.35, car.power / 130)) : 1), MAXR = -7;
-  if (f > 0 && (car.fuel ?? 100) > 0 && (car.hp ?? 100) > 0) car.speed += (car.speed < 0 ? 22 : 9) * f * dt; // empty tank or wrecked engine: no power
+  const V = vehicleSpec(car), MAXF = V.vmax / 3.6, MAXR = -Math.min(7, MAXF * 0.35);
+  if (f > 0 && (car.fuel ?? 100) > 0 && (car.hp ?? 100) > 0) car.speed += (car.speed < 0 ? 22 : 9 * V.acc) * f * dt; // empty tank or wrecked engine: no power
   else if (f < 0) car.speed += (car.speed > 0 ? -24 : -7) * -f * dt;
   else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 4 * dt);
   if (brake) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 30 * dt);
@@ -3905,7 +3905,7 @@ function initTouchUI() {
     const on = touch.id !== null; joy.style.display = on ? 'block' : 'none';
     if (on) { joy.style.left = touch.sx + 'px'; joy.style.top = touch.sy + 'px'; let dx = touch.x - touch.sx, dy = touch.y - touch.sy; const d = Math.hypot(dx, dy); if (d > 45) { dx *= 45 / d; dy *= 45 / d; } knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; }
     document.getElementById('tR').style.display = document.getElementById('tX').style.display = L.placing ? 'block' : (inside && L.home === (inside.door && inside.door.id) ? 'block' : 'none');
-    document.getElementById('tE').textContent = player.inCar ? '🚗' : 'E';
+    document.getElementById('tE').textContent = player.inCar ? '🚗' : 'E'; document.body.classList.toggle('driving', !!player.inCar && !player.onBus);
   }, 50);
 }
 
@@ -4963,6 +4963,20 @@ function carSmoke(car, dt) {
   if (car.smk) for (const s of car.smk.children) { s.userData.t = (s.userData.t + dt * (car.hp <= 0 ? 0.6 : 0.4)) % 1; const k = s.userData.t; s.position.set(Math.sin(k * 9) * 0.2, k * 2.2, -k * 0.6); s.scale.setScalar(0.6 + k * 2.2); s.visible = k < 0.95; }
 }
 // ---- my vehicle: info panel + trunk. Capacity from the vehicle's size: 1 (bike) .. 20 slots (big trucks); planes 20-60, boats 60-80
+// top speed (km/h) and pick-up by vehicle kind: scooters 30 km/h, heavy trucks/buses slow, cars depend on their engine
+function vehicleSpec(car) {
+  if (car._spec) return car._spec;
+  const s = new THREE.Box3().setFromObject(car.obj).getSize(new THREE.Vector3()), len = Math.max(s.x, s.z);
+  let vmax, acc;
+  const nm = (car.obj.userData.name || '') + ' ' + (car.vmp || '');
+  if (isTwo(car.obj)) { vmax = 30; acc = 0.9; }
+  else if (len >= 7 || /Truck|Bus|Garbage|Fire|Tow|Cement|Dump|Tractor|Forklift/i.test(nm)) { vmax = 55; acc = 0.45; } // truck, bus
+  else if (len >= 5.2 || /Van|Ambulance|PickUp|Pick_Up|Delivery/i.test(nm)) { vmax = 80; acc = 0.7; }                  // van, pick-up
+  else if (/Police/i.test(nm)) { vmax = 120; acc = 1.15; }
+  else if (/Sport|Race|Super/i.test(nm)) { vmax = 140; acc = 1.3; }
+  else { const p = car.power ? Math.max(0.8, Math.min(1.3, car.power / 130)) : 1; vmax = Math.round(100 * p); acc = p; }
+  return (car._spec = { vmax, acc });
+}
 function trunkSlots(car) {
   const s = new THREE.Box3().setFromObject(car.obj).getSize(new THREE.Vector3()), len = Math.max(s.x, s.z), n = (car.name || car.vmp || '') + '';
   if (/plane|avion|aircraft/i.test(n)) return Math.round(Math.min(60, Math.max(20, len * 2)));
@@ -5327,7 +5341,7 @@ function start() {
         const st = busStops.find(s => s.line === 1) ; const o = OUT[st.edge]; player.pos.set(st.pos.x - o[0] * 4, SW, st.pos.z - o[1] * 4); cam.yaw = Math.atan2(-o[0] + o[1] * 0.8, -o[1] - o[0] * 0.8); cam.dist = 10; cam.pitch = 0.3;
         for (let i = 0; i < 4; i++) step();
       } else if (auto === 'parking') {
-        const sp = parkedSpots[0]; player.pos.set(sp.x + 2, SW, sp.z + 2); step(); toggleCar();
+        { const nm = Object.keys(names).find(n => new RegExp(Q.get('veh') || '^Car_').test(n)); const o = makeObject(nm); scene.add(o); player.inCar = { obj: o, speed: 0 }; player.ch.o.visible = false; }
         window.MSTATE = { inCar: !!player.inCar, parked: parkedSpots.length };
         keys.add('KeyW'); for (let i = 0; i < 30; i++) step(); keys.clear();
       } else if (auto === 'lot') {
@@ -5494,6 +5508,11 @@ function start() {
           for (let i = 0; i < 4; i++) step(); window.MSTATE = st; console.log('LOBBY '+JSON.stringify(st)); })().catch(e => console.log('ERR ' + e.stack));
       } else if (auto === 'hosp') {
         window.PENDING = (async () => { const hd = hospitalDoor(); await enterDoor(hd); const r = inside.room; player.pos.set(r.counter.x, 0, r.counter.z); const st = { prompt: lifePrompt() }; player.pos.set(r.ox + 7.5, 0, r.oz + 8.5); player.heading = Math.PI; cam.pitch = 1.0; cam.dist = 17; cam.yaw = 0; for (let i = 0; i < 4; i++) step(); console.log('HOSP '+JSON.stringify(st)); })().catch(e => console.log('ERR ' + e.stack));
+      } else if (auto === 'vdrive') {
+        const names = {}; for (const sp of parkedSpots) names[sp.name] = sp; const rep = [];
+        for (const n of Object.keys(names).slice(0, 40)) { const o = makeObject(n); const sp = vehicleSpec({ obj: o }); rep.push(n + '=' + sp.vmax); } rep.sort();
+        console.log('VSPEC ' + rep.join(' '));
+        { const nm = Object.keys(names).find(n => new RegExp(Q.get('veh') || '^Car_').test(n)); const o = makeObject(nm); scene.add(o); player.inCar = { obj: o, speed: 0 }; player.ch.o.visible = false; } { const a = cars.splice(+(Q.get('rx') || 0), 1)[0]; a.obj.visible = false; player.inCar.obj.position.copy(a.obj.position); player.inCar.obj.rotation.y = a.obj.rotation.y; for (const c of cars) c.obj.position.y -= 1e4; } keys.add('KeyW'); const tr = []; for (let i = 0; i < 200; i++) { updatePlayerCar(0.05); if (i % 40 == 0) tr.push((player.inCar.speed * 3.6).toFixed(0) + '/' + JSON.stringify(axis())); } console.log('TR ' + tr.join(' ')); keys.delete('KeyW'); console.log('DRIVE ' + (player.inCar && player.inCar.obj.userData.name) + ' kmh=' + Math.round(player.inCar.speed * 3.6) + ' vmax=' + vehicleSpec(player.inCar).vmax); player.inCar.speed = 0;
       } else if (auto === 'utilnet') {
         const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); L.bank = 100; L.eau = L.elec = false; game.on = true; togglePhone(true); phoneGo('internet');
         const r = []; utilToggle('eau'); r.push('eau=' + L.eau + ' bank=' + L.bank); utilToggle('elec'); r.push('elec=' + L.elec + ' bank=' + L.bank); utilToggle('eau'); r.push('eauResil=' + !L.eau); utilToggle('eau'); phoneRender(); console.log('UTILNET ' + r.join(' '));

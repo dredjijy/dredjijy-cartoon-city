@@ -76,7 +76,7 @@
   #top{position:fixed;left:12px;top:12px;display:flex;gap:6px;flex-wrap:wrap;max-width:calc(100vw - 260px);z-index:10}
   #minimap{position:fixed;right:12px;top:12px;width:220px;height:220px;border-radius:14px;border:3px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:10;background:#3c3f47}
   #minimap.hidden{display:none}
-  #speed{position:fixed;right:20px;bottom:20px;font-size:34px;font-weight:800;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.5);display:none}
+  #speed{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(20,26,40,.6);padding:2px 16px;border-radius:14px;z-index:32;font-size:34px;font-weight:800;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.5);display:none}
   #prompt{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(20,26,40,.8);color:#fff;font-weight:700;padding:10px 16px;border-radius:10px;display:none}
   #money{position:fixed;right:20px;top:248px;font-size:26px;font-weight:800;color:#3cff8a;text-shadow:0 2px 6px rgba(0,0,0,.6)}
   #mission{position:fixed;left:12px;top:62px;background:rgba(20,26,40,.78);color:#fff;border-radius:12px;padding:10px 14px;max-width:320px;display:flex;flex-direction:column;gap:3px;font-size:14px}
@@ -136,6 +136,10 @@
   body.touch #help{display:none}
   #joy{position:fixed;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;border:3px solid rgba(255,255,255,.8);background:rgba(29,39,64,.25);pointer-events:none;display:none;z-index:30}
   #joy i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:#ffd54f;border:3px solid #1d2740}
+  .tb.dv{display:none;flex-direction:column;align-items:center;justify-content:center;width:84px;height:84px;font-size:26px;line-height:1}.tb.dv small{font-size:11px;margin-top:2px}
+  body.touch.driving .tb:not(.dv){display:none!important}body.touch.driving .tb.dv{display:flex}
+  #dGas{right:26px;bottom:26px;background:#4ade80;width:96px;height:96px}#dRev{right:40px;bottom:140px;background:#e2e8f0}#dBrake{left:26px;bottom:26px;background:#f87171;width:96px;height:96px}#dExit{left:40px;bottom:140px;background:#ffd54f}
+  @media(max-height:500px){.tb.dv{width:70px;height:70px;font-size:22px}#dGas,#dBrake{width:80px;height:80px;bottom:16px}#dRev{bottom:108px;right:30px}#dExit{bottom:108px;left:30px}}
   .tb{position:fixed;z-index:31;width:62px;height:62px;border-radius:50%;border:3px solid #1d2740;background:#fff;box-shadow:0 4px 0 #1d2740;font-size:15px;font-weight:900;color:#1d2740;touch-action:none;-webkit-user-select:none}
   .tb.down{transform:translateY(3px);box-shadow:0 1px 0 #1d2740;background:#ffd54f}
   #tE{right:24px;bottom:150px;width:78px;height:78px;background:#ffd54f;font-size:22px}
@@ -281,7 +285,7 @@
   
   
   <div id="touchUI"><div id="joy"><i></i></div>
-  <button class="tb" id="tE" data-k="KeyE">E</button><button class="tb" id="tRun" data-k="ShiftLeft" data-hold="1">🏃</button><button class="tb" id="tJump" data-k="Space" data-hold="1">⤒</button>
+  <button class="tb" id="tE" data-k="KeyE">E</button><button class="tb dv" id="dGas" data-k="KeyW" data-hold="1">▲<small>Accél.</small></button><button class="tb dv" id="dRev" data-k="KeyS" data-hold="1">R<small>Arrière</small></button><button class="tb dv" id="dBrake" data-k="Space" data-hold="1">■<small>Frein</small></button><button class="tb dv" id="dExit" data-k="KeyE">🚪<small>Sortir</small></button><button class="tb" id="tRun" data-k="ShiftLeft" data-hold="1">🏃</button><button class="tb" id="tJump" data-k="Space" data-hold="1">⤒</button>
   <button class="tb" id="tInv" data-k="KeyI">🎒</button><button class="tb" id="tR" data-k="KeyR">↻</button><button class="tb" id="tX" data-k="KeyX">✋</button><button class="tb" id="tCam" data-k="KeyC">🎥</button><button class="tb" id="tZin" data-zoom="0.8">＋</button><button class="tb" id="tZout" data-zoom="1.25">－</button></div>
   <div id="rotate">📱↻<br>Tourne ton téléphone en mode paysage pour jouer</div>
   <div id="gpsStrip"><i>⬆</i><div><b></b><span></span></div></div>
