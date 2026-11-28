@@ -2159,6 +2159,21 @@ function buildQuarry() {
 // ---- tasks
 function sidewalkTarget(minD, maxD, from = player.pos) { return sidewalkPoint(minD, maxD, from); }
 function nearestSpot(kind) { return jobSpots.find(s => s.kind === kind); }
+// a call is offered, the player accepts or refuses (no forced chaining); unanswered = refused after 25 s
+const OFFER_TXT = { pompier: '🔥 Incendie signalé', ambulancier: '🚑 Blessé à prendre en charge', taxi: '🚕 Client qui attend', livreur: '📦 Tournée de colis' };
+function jobOffer() {
+  if (!OFFER_TXT[J.job]) { J.cooldown = 1e9; return; }
+  J.offer = { t: 25 }; let el = document.getElementById('joboffer');
+  if (!el) { el = document.createElement('div'); el.id = 'joboffer'; document.body.append(el); }
+  el.innerHTML = '<b></b><span>Accepter la mission ?</span><div><button class="y">✔ Accepter</button><button class="n">✖ Refuser</button></div>'; el.firstChild.textContent = OFFER_TXT[J.job];
+  el.querySelector('.y').onclick = () => jobOfferAnswer(true); el.querySelector('.n').onclick = () => jobOfferAnswer(false); el.style.display = 'flex';
+  phoneNotify('📟 Central', OFFER_TXT[J.job]);
+}
+function jobOfferAnswer(yes) {
+  if (!J.offer) return; J.offer = null; const el = document.getElementById('joboffer'); if (el) el.style.display = 'none';
+  if (!yes) { J.cooldown = rr(25, 45); banner('Mission refusée', 1000); return; }
+  if (J.job === 'pompier') startFire(); else if (J.job === 'ambulancier') startPatient(); else if (J.job === 'taxi') startFare(); else if (J.job === 'livreur') startDeliveries();
+}
 function startFire() {
   const cands = doors.filter(d => Math.hypot(d.x - player.pos.x, d.z - player.pos.z) > 80 && Math.hypot(d.x - player.pos.x, d.z - player.pos.z) < 350);
   const d = cands.length ? pick(cands) : pick(doors);
@@ -2203,7 +2218,7 @@ function clearTask() {
   if (t.mk) scene.remove(t.mk);
   if (t.mks) t.mks.forEach(m => scene.remove(m));
   if (t.ch) { scene.remove(t.ch.o); const i = mixers.indexOf(t.ch.mixer); if (i >= 0) mixers.splice(i, 1); }
-  J.task = null; J.cooldown = 4;
+  J.task = null; J.cooldown = 4; if (J.offer) { J.offer = null; const el = document.getElementById('joboffer'); if (el) el.style.display = 'none'; }
 }
 function pay(n, why) { n = garnish(n); M.money += n; L.earned = (L.earned || 0) + Math.max(0, n); banner(why + ' +' + n + ' $', 2200); updateMissionHud(); }
 function invCount() { return Object.values(J.inv).reduce((a, b) => a + b, 0); }
@@ -2295,7 +2310,7 @@ function updateJobs(dt) {
   if (t && t.type === 'fire') for (const f of t.flames) { const k = t.hp / 100; f.c.scale.setScalar(Math.max(0.01, k * (0.8 + 0.3 * Math.sin(performance.now() / 120 + f.ph)))); f.c.position.y = f.base + Math.sin(performance.now() / 200 + f.ph) * 0.2; }
   if (t && t.type === 'fire') for (const s of t.smoke) { s.t = (s.t + dt * 0.15) % 1; s.s.position.set(t.door.x - t.door.out[0] * 2 + s.t * 4, SW + 6 + s.t * 16, t.door.z - t.door.out[1] * 2); s.s.scale.setScalar((0.8 + s.t * 3) * (t.hp / 100 + 0.2)); }
   if (!game.on || !J.job) { updateJobHud(); return; }
-  if (!t) { J.cooldown -= dt; if (J.cooldown <= 0) { if (J.job === 'pompier') startFire(); else if (J.job === 'ambulancier') startPatient(); else if (J.job === 'taxi') startFare(); else if (J.job === 'livreur') startDeliveries(); else J.cooldown = 1e9; } }
+  if (!t) { J.cooldown -= dt; if (J.cooldown <= 0 && !J.offer) jobOffer(); if (J.offer && (J.offer.t -= dt) <= 0) jobOfferAnswer(false); }
   const car = player.inCar, k = J.task;
   if (k) {
     k.t += dt; if (k.mk) k.mk.rotation.y += dt;
@@ -3669,7 +3684,7 @@ function busBoard(st) {
   const tick = () => { if (!ov.isConnected) return clearInterval(iv); const s = eta(); ov.querySelector('.bmt').textContent = s === null ? 'Aucun bus en service sur la ligne' : s < 3 ? '🚌 Le bus arrive — reste à l’arrêt' : '🚌 Prochain bus dans ' + Math.floor(s / 60) + ' min ' + String(Math.round(s % 60)).padStart(2, '0') + ' s'; };
   const iv = setInterval(tick, 1000); tick();
   const c = ov.querySelector('canvas'), S = Math.min(innerWidth - 360, innerHeight - 140, 640); c.width = c.height = Math.max(240, S); const k = c.width / (2 * HALF);
-  const g = c.getContext('2d'); g.drawImage(hud.mm, 0, 0, c.width, c.width); g.globalAlpha = 0.35; for (const o of BUS_LINES) { if (o === Ln) continue; } g.globalAlpha = 1; drawBusOnMap(g, k);
+  const g = c.getContext('2d'); g.drawImage(hud.bg, 0, 0, c.width, c.width); g.globalAlpha = 0.35; for (const o of BUS_LINES) { if (o === Ln) continue; } g.globalAlpha = 1; drawBusOnMap(g, k);
   g.strokeStyle = col; g.lineWidth = 6; g.beginPath(); Ln.nodes.forEach(([a, b], q) => { const x = (lineX(a) + HALF) * k, z = (lineX(b) + HALF) * k; q ? g.lineTo(x, z) : g.moveTo(x, z); }); g.closePath(); g.stroke();
   stops.forEach(s => { const x = (s.pos.x + HALF) * k, z = (s.pos.z + HALF) * k; g.fillStyle = s === st ? '#ffeb3b' : '#fff'; g.beginPath(); g.arc(x, z, s === st ? 7 : 4, 0, 7); g.fill(); g.font = 'bold 11px sans-serif'; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3; g.strokeText(s.name, x + 7, z + 4); g.fillText(s.name, x + 7, z + 4); });
   { const px = (player.pos.x + HALF) * k, pz = (player.pos.z + HALF) * k; g.fillStyle = 'rgba(255,82,82,.35)'; g.beginPath(); g.arc(px, pz, 16, 0, 7); g.fill(); g.fillStyle = '#ff5252'; g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(px, pz, 8, 0, 7); g.fill(); g.stroke(); g.font = 'bold 14px sans-serif'; g.lineWidth = 4; g.strokeStyle = '#000'; g.strokeText('📍 Tu es ici', px + 12, pz - 10); g.fillStyle = '#fff'; g.fillText('📍 Tu es ici', px + 12, pz - 10); }
@@ -4904,7 +4919,7 @@ function openBigMap(mode) {
   document.body.append(ov); UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock();
   ov.querySelector('b').textContent = mode === 'taxi' ? '🚕 Touche l’endroit où le taxi doit t’emmener' : '📍 Touche une destination (tes biens en jaune)';
   const c = ov.querySelector('canvas'), S = Math.min(innerWidth - 40, innerHeight - 140); c.width = c.height = S; const k = S / (2 * HALF);
-  const g = c.getContext('2d'); g.drawImage(hud.mm, 0, 0, S, S);
+  const g = c.getContext('2d'); g.drawImage(hud.bg, 0, 0, S, S);
   const dot = (x, z, col, r, txt) => { g.fillStyle = col; g.beginPath(); g.arc((x + HALF) * k, (z + HALF) * k, r, 0, 7); g.fill(); if (txt) { g.font = 'bold 12px sans-serif'; g.fillStyle = '#fff'; g.fillText(txt, (x + HALF) * k + r + 2, (z + HALF) * k + 4); } };
   for (const p of L.props) { const u = doors[p.uid]; dot(u.x, u.z, '#ffd54f', 7, '🏠 ' + u.label); }
   for (const [n, x, z] of destinations()) dot(x, z, '#90caf9', 4, '');
@@ -5383,12 +5398,12 @@ function drawPhoneGps() {
   if (g) b.querySelector('b').textContent = g.label;
 }
 function drawPhoneMap() {
-  const c = PH.mapCanvas; if (!c || !hud.mm) return; const g = c.getContext('2d'), W = c.width, k = hud.mm.width / (2 * HALF);
+  const c = PH.mapCanvas; if (!c || !hud.bg) return; const g = c.getContext('2d'), W = c.width, k = hud.k; // static road map (drawn even when the minimap is hidden)
   const span = 260 * k, sx = (player.pos.x + HALF) * k - span / 2, sz = (player.pos.z + HALF) * k - span / 2;
-  g.fillStyle = '#2b3240'; g.fillRect(0, 0, W, W); g.drawImage(hud.mm, sx, sz, span, span, 0, 0, W, W);
+  g.fillStyle = '#2b3240'; g.fillRect(0, 0, W, W); g.imageSmoothingEnabled = true; g.drawImage(hud.bg, sx, sz, span, span, 0, 0, W, W);
   const toC = (x, z) => [((x + HALF) * k - sx) / span * W, ((z + HALF) * k - sz) / span * W];
   const tg = gpsTarget(); if (tg) { const [ax, ay] = toC(player.pos.x, player.pos.z), [bx, by] = toC(tg.x, tg.z); g.strokeStyle = '#2196f3'; g.lineWidth = 5; g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax, by); g.lineTo(bx, by); g.stroke(); g.fillStyle = '#e53935'; g.beginPath(); g.arc(Math.max(6, Math.min(W - 6, bx)), Math.max(6, Math.min(W - 6, by)), 7, 0, 7); g.fill(); }
-  const h = player.inCar ? player.inCar.obj.rotation.y : player.heading;
+  const h = player.inCar ? player.inCar.obj.rotation.y + Math.PI : player.heading; // car models face −Z
   g.save(); g.translate(W / 2, W / 2); g.rotate(-h + Math.PI); g.fillStyle = '#fff'; g.strokeStyle = '#1565c0'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 8); g.lineTo(0, 4); g.lineTo(-8, 8); g.closePath(); g.fill(); g.stroke(); g.restore();
 }
 let phTick = 0;
@@ -5652,6 +5667,9 @@ function start() {
           finTrade('petrole', 10); const h1 = JSON.stringify(F.hold); GT.min += 60; GT.day += 0; marketTick(); finTrade('petrole', -5);
           console.log('FIN desks=' + r.desks.length + ' prompt=' + pr + ' open=' + BOURSE.open + ' hold=' + h1 + ' cash=' + Math.round(F.cash) + ' after=' + JSON.stringify(F.hold) + ' news=' + (F.news || []).length);
           if (Q.get('view') === 'room') { closeBourse(); setFreeCam(true); camera.position.set(r.ox + 8.75, 14, r.oz + 16); controls.target.set(r.ox + 8.75, 0, r.oz + 6); controls.update(); } })();
+      } else if (auto === 'gpsoffer') {
+        game.on = true; J.job = 'ambulancier'; J.cooldown = 0; hud.mm.classList.add('hidden'); for (let i = 0; i < 3; i++) step(); const off = !!J.offer && document.getElementById('joboffer').style.display; jobOfferAnswer(true); console.log('OFFER shown=' + off + ' task=' + (J.task && J.task.type));
+        player.heading = Math.PI / 2; togglePhone(true); phoneGo('carte');
       } else if (auto === 'utilnet') {
         const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); L.bank = 100; L.eau = L.elec = false; game.on = true; togglePhone(true); phoneGo('internet');
         const r = []; utilToggle('eau'); r.push('eau=' + L.eau + ' bank=' + L.bank); utilToggle('elec'); r.push('elec=' + L.elec + ' bank=' + L.bank); utilToggle('eau'); r.push('eauResil=' + !L.eau); utilToggle('eau'); phoneRender(); console.log('UTILNET ' + r.join(' '));
