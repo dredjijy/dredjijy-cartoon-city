@@ -4922,7 +4922,7 @@ function openBigMap(mode) {
   const g = c.getContext('2d'); g.drawImage(hud.bg, 0, 0, S, S);
   const dot = (x, z, col, r, txt) => { g.fillStyle = col; g.beginPath(); g.arc((x + HALF) * k, (z + HALF) * k, r, 0, 7); g.fill(); if (txt) { g.font = 'bold 12px sans-serif'; g.fillStyle = '#fff'; g.fillText(txt, (x + HALF) * k + r + 2, (z + HALF) * k + 4); } };
   for (const p of L.props) { const u = doors[p.uid]; dot(u.x, u.z, '#ffd54f', 7, '🏠 ' + u.label); }
-  for (const [n, x, z] of destinations()) dot(x, z, '#90caf9', 4, '');
+  g.textAlign = 'center'; g.font = Math.round(Math.max(14, S / 45)) + 'px sans-serif'; for (const [n, x, z] of destinations()) { dot(x, z, 'rgba(255,255,255,.85)', Math.max(8, S / 70), ''); g.fillStyle = '#000'; g.fillText(n.split(' ')[0], (x + HALF) * k, (z + HALF) * k + Math.max(5, S / 160)); } g.textAlign = 'left';
   dot(player.pos.x, player.pos.z, '#fff', 6, 'Moi');
   const close = () => { ov.remove(); UI.open = false; };
   ov.querySelector('button').onclick = close;
@@ -5403,6 +5403,7 @@ function drawPhoneMap() {
   g.fillStyle = '#2b3240'; g.fillRect(0, 0, W, W); g.imageSmoothingEnabled = true; g.drawImage(hud.bg, sx, sz, span, span, 0, 0, W, W);
   const toC = (x, z) => [((x + HALF) * k - sx) / span * W, ((z + HALF) * k - sz) / span * W];
   const tg = gpsTarget(); if (tg) { const [ax, ay] = toC(player.pos.x, player.pos.z), [bx, by] = toC(tg.x, tg.z); g.strokeStyle = '#2196f3'; g.lineWidth = 5; g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax, by); g.lineTo(bx, by); g.stroke(); g.fillStyle = '#e53935'; g.beginPath(); g.arc(Math.max(6, Math.min(W - 6, bx)), Math.max(6, Math.min(W - 6, by)), 7, 0, 7); g.fill(); }
+  g.textAlign = 'center'; g.font = '15px sans-serif'; for (const [n, x, z] of destinations()) { const [cx, cy] = toC(x, z); if (cx > -10 && cy > -10 && cx < W + 10 && cy < W + 10) { g.fillStyle = 'rgba(255,255,255,.85)'; g.beginPath(); g.arc(cx, cy, 10, 0, 7); g.fill(); g.fillText(n.split(' ')[0], cx, cy + 5); } } g.textAlign = 'left';
   const h = player.inCar ? player.inCar.obj.rotation.y + Math.PI : player.heading; // car models face −Z
   g.save(); g.translate(W / 2, W / 2); g.rotate(-h + Math.PI); g.fillStyle = '#fff'; g.strokeStyle = '#1565c0'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 8); g.lineTo(0, 4); g.lineTo(-8, 8); g.closePath(); g.fill(); g.stroke(); g.restore();
 }
@@ -5669,7 +5670,7 @@ function start() {
           if (Q.get('view') === 'room') { closeBourse(); setFreeCam(true); camera.position.set(r.ox + 8.75, 14, r.oz + 16); controls.target.set(r.ox + 8.75, 0, r.oz + 6); controls.update(); } })();
       } else if (auto === 'gpsoffer') {
         game.on = true; J.job = 'ambulancier'; J.cooldown = 0; hud.mm.classList.add('hidden'); for (let i = 0; i < 3; i++) step(); const off = !!J.offer && document.getElementById('joboffer').style.display; jobOfferAnswer(true); console.log('OFFER shown=' + off + ' task=' + (J.task && J.task.type));
-        player.heading = Math.PI / 2; togglePhone(true); phoneGo('carte');
+        player.heading = Math.PI / 2; togglePhone(true); phoneGo('carte'); if (Q.get('big')) openBigMap('gps');
       } else if (auto === 'utilnet') {
         const d = doors.find(d => d.type === 'appart' && !d.service); setHome(d, true); L.bank = 100; L.eau = L.elec = false; game.on = true; togglePhone(true); phoneGo('internet');
         const r = []; utilToggle('eau'); r.push('eau=' + L.eau + ' bank=' + L.bank); utilToggle('elec'); r.push('elec=' + L.elec + ' bank=' + L.bank); utilToggle('eau'); r.push('eauResil=' + !L.eau); utilToggle('eau'); phoneRender(); console.log('UTILNET ' + r.join(' '));
