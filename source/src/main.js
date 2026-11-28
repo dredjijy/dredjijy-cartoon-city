@@ -239,7 +239,7 @@ async function fetchPack(name) {
     return gz ? s.pipeThrough(new DecompressionStream('gzip')) : s; } }
   return (await fetch(BASE + name)).body;
 }
-async function fetchPackBuf(name) { return await new Response(await fetchPack(name)).arrayBuffer(); }
+async function fetchPackBuf(name) { try { return await new Response(await fetchPack(name)).arrayBuffer(); } catch (e) { console.warn('gz failed, raw', name, e); return await (await fetch(BASE + name)).arrayBuffer(); } }
 async function loadAll() {
   say('Chargement des modèles…');
   INDEX = await (await fetch(BASE + 'index.json')).json();
@@ -261,7 +261,7 @@ async function loadAll() {
   let n = 0;
   await Promise.all(names.map(async (name) => {
     const [off, len] = INDEX[name];
-    const g = await loader.parseAsync(buf.slice(off, off + len), '');
+    const g = await Promise.race([loader.parseAsync(buf.slice(off, off + len), ''), new Promise((_, rj) => setTimeout(() => rj(new Error('timeout ' + name)), 4000))]); // one stuck model never blocks the door
     n++; if (n % 20 === 0) { say(`Préparation ${n}/${names.length}`); loadProgress(60 + n / names.length * 25, 'Préparation des modèles'); }
     if (name === 'Characters_1_Animations') { for (const c of g.animations) clips[c.name] = c; return; }
     if (name.startsWith('Character_') || name.startsWith('PoliceMan')) {
@@ -314,11 +314,15 @@ function benchSeat(name, x, z, rot) {
   let s = SEATC[name];
   if (!s) { const P = proto[name], v = new THREE.Vector3(); let bx = 0, bn = 0, sy = 0; const long = P.bb.max.z - P.bb.min.z > P.bb.max.x - P.bb.min.x;
     for (const p of P.parts) { const pos = p.geo.attributes.position; for (let i = 0; i < pos.count; i += 3) { v.fromBufferAttribute(pos, i).applyMatrix4(p.mtx); const a = long ? v.x : v.z; if (v.y > 0.62) { bx += a; bn++; } else if (v.y < 0.6) sy = Math.max(sy, v.y); } }
-    const back = bn ? Math.sign(bx / bn) || 1 : -1; // backrest side along the short axis
-    s = SEATC[name] = { long, back, y: Math.min(0.55, Math.max(0.35, sy)) }; }
+    const y = Math.min(0.55, Math.max(0.35, sy));
+    // picnic table (table top in the middle, a plank on each side): sit on one plank, facing the table
+    let side = 0; if (bn && Math.abs(bx / bn) < 0.2) { const as = []; for (const p of P.parts) { const pos = p.geo.attributes.position; for (let i = 0; i < pos.count; i += 3) { v.fromBufferAttribute(pos, i).applyMatrix4(p.mtx); if (v.y > y - 0.07 && v.y < y + 0.02) as.push(Math.abs(long ? v.x : v.z)); } } as.sort((a, b) => a - b); const med = as[as.length >> 1] || 0; if (med > 0.25) side = med; }
+    const back = side ? 1 : bn ? Math.sign(bx / bn) || 1 : -1; // backrest side along the short axis
+    s = SEATC[name] = { long, back, y, side }; }
   const c = Math.cos(rot), sn = Math.sin(rot);
   // local facing: away from the backrest along the short axis
   const lx = s.long ? -s.back : 0, lz = s.long ? 0 : -s.back, wx = lx * c + lz * sn, wz = -lx * sn + lz * c;
+  if (s.side) return { x: x - wx * s.side, z: z - wz * s.side, y: s.y, rot: Math.atan2(wx, wz) }; // on the far plank, facing the table
   return { x: x + wx * 0.02, z: z + wz * 0.02, y: s.y, rot: Math.atan2(wx, wz) };
 }
 function put(name, x, y, z, rot = 0, sc = 1, sy) {
@@ -588,8 +592,8 @@ function roads() {
 
 // sidewalk ring + base slab for a block. returns inner lot bounds
 function blockBase(cx, cz, { grassEdges = {}, interior = 'StreetTile_1_A_1' } = {}) {
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(BLK, SW, BLK), baseMat);
-  slab.position.set(cx, SW / 2 - 0.001, cz); slab.receiveShadow = true; scene.add(slab);
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(BLK - 0.06, SW - 0.04, BLK - 0.06), baseMat); // a little under / inside the paving and kerbs: no z-fighting stripes on the edges
+  slab.position.set(cx, (SW - 0.04) / 2, cz); slab.receiveShadow = true; scene.add(slab);
   const tile = 'StreetTile_1_A_1';
   for (let a = -23; a <= 23; a += 2) for (let b = -23; b <= 23; b += 2) {
     const ring = Math.abs(a) > 20 || Math.abs(b) > 20;
@@ -853,7 +857,6 @@ function blockBasket(cx, cz, bi, bj) {
   for (const t of [-4.5, 0, 4.5]) { put('Fence_1_A_3', ox + t, SW, oz - 10, Math.PI / 2); put('Fence_1_A_3', ox + t, SW, oz + 10, Math.PI / 2); }
   for (const t of [-6, -2, 2, 6]) put('Bench_1_A_1', ox + 5.8, SW + 0.2, oz + t, 0);
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) put('Lamp_Court_1_A', ox + sx * 6.6, SW + 0.2, oz + sz * 9.6, sx > 0 ? -Math.PI / 2 : Math.PI / 2);
-  put('Basketball', ox + 1, SW + 0.42, oz - 6, 0);
   // side garden
   for (let i = 0; i < 14; i++) put(pick(['Tree_A_5', 'Tree_A_2', 'Tree_A_6', 'Bush_2_A_1', 'Flowers_1_A']), cx + rr(1, 19), SW, cz + rr(-19, 19), rr(0, 6), rr(1.5, 2.2));
   put('RockFormation_2', cx + 14, SW, cz - 12, 0.3, 1.3);
@@ -1131,11 +1134,29 @@ function updatePeds(dt) { const dtAll = dt;
     p.o.position.set(p.cx + x, SW, p.cz + z);
     p.o.rotation.y = Math.atan2(dx * p.dir, dz * p.dir);
   }
-  for (const pl of players) {
-    if (!pl.o) continue;
-    const dx = pl.tx - pl.o.position.x, dz = pl.tz - pl.o.position.z, d = Math.hypot(dx, dz);
-    if (d < 0.3) { pl.tx = pl.ox + rr(-3.2, 3.2); pl.tz = pl.oz + rr(-7, 7); }
-    else { const sp = 3.2 * dt; pl.o.position.x += dx / d * sp; pl.o.position.z += dz / d * sp; pl.o.rotation.y = Math.atan2(dx, dz); }
+  // pick-up games: one ball per court; the carrier dribbles to a hoop and shoots, the others follow the play, the nearest player catches the rebound
+  const courts = updatePeds.courts || (updatePeds.courts = {});
+  for (const pl of players) { if (!pl.o) continue; const k = pl.ox + ',' + pl.oz; let c = courts[k]; if (!c) { c = courts[k] = { ox: pl.ox, oz: pl.oz, pl: [], ball: null, holder: null, fly: null, goal: 1 }; } if (!c.pl.includes(pl)) c.pl.push(pl); }
+  for (const c of Object.values(courts)) {
+    if (!c.ball && proto.Basketball) { c.ball = makeObject('Basketball'); scene.add(c.ball); c.holder = c.pl[0]; }
+    if (!c.ball) continue;
+    const hoop = { x: c.ox, z: c.oz + c.goal * 8.4 }, near = c.pl[0] && Math.hypot(c.pl[0].o.position.x - camera.position.x, c.pl[0].o.position.z - camera.position.z) < 120;
+    c.ball.visible = near;
+    for (const pl of c.pl) {
+      let tx, tz, sp = 3.0;
+      if (pl === c.holder) { tx = hoop.x; tz = hoop.z - c.goal * 1.6; sp = 3.4; }
+      else { const h = c.fly ? { x: c.fly.tx, z: c.fly.tz } : c.holder.o.position; const i = c.pl.indexOf(pl); tx = h.x + Math.cos(i * 2.1) * 2.2; tz = h.z + Math.sin(i * 2.1) * 2.2 - c.goal * 1.2; }
+      const dx = tx - pl.o.position.x, dz = tz - pl.o.position.z, d = Math.hypot(dx, dz);
+      if (d > 0.4) { const s = Math.min(d, sp * dt); pl.o.position.x += dx / d * s; pl.o.position.z += dz / d * s; pl.o.rotation.y = Math.atan2(dx, dz); }
+      else pl.o.rotation.y = Math.atan2(hoop.x - pl.o.position.x, hoop.z - pl.o.position.z);
+    }
+    if (c.fly) { // shot in the air: parabola to the rim, then falls under it
+      c.fly.t += dt / 1.1; const k = Math.min(1, c.fly.t); c.ball.position.set(c.fly.x + (c.fly.tx - c.fly.x) * k, SW + c.fly.y + (3.3 - c.fly.y) * k + Math.sin(k * Math.PI) * 2.2, c.fly.z + (c.fly.tz - c.fly.z) * k);
+      if (c.fly.t >= 1.6) { c.ball.position.y = SW + 0.25; let best = null, bd = 1e9; for (const pl of c.pl) { const d = pl.o.position.distanceTo(c.ball.position); if (d < bd) { bd = d; best = pl; } } c.holder = best; c.goal = -c.goal; c.fly = null; }
+    } else if (c.holder) { // dribble at the carrier's side
+      const o = c.holder.o, f = updatePeds.f || 0; c.ball.position.set(o.position.x + Math.sin(o.rotation.y + 0.9) * 0.45, SW + 0.15 + Math.abs(Math.sin(f * 0.35)) * 0.75, o.position.z + Math.cos(o.rotation.y + 0.9) * 0.45);
+      if (Math.hypot(o.position.x - hoop.x, o.position.z - (hoop.z - c.goal * 1.6)) < 0.8) c.fly = { t: 0, x: c.ball.position.x, y: 1.6, z: c.ball.position.z, tx: hoop.x, tz: hoop.z };
+    }
   }
 }
 
@@ -1217,7 +1238,7 @@ async function main() {
   T(4, 9, 'park'); T(9, 4, 'park'); T(10, 10, 'park'); T(2, 5, 'park'); T(8, 7, 'statue');
   T(5, 8, 'basket'); T(9, 9, 'basket'); T(7, 5, 'parking'); T(3, 10, 'parking');
   T(0, 8, 'construction'); T(11, 2, 'construction');
-  T(14, 3, 'job:fire'); T(14, 7, 'job:hospital'); T(7, 14, 'job:taxi'); T(10, 14, 'job:delivery'); T(4, 14, 'job:warehouse'); T(14, 11, 'job:garage'); T(14, 5, 'job:gas'); T(12, 14, 'job:gas'); T(0, 14, 'job:gas'); T(1, 14, 'job:garage'); T(14, 14, 'factory');
+  T(14, 3, 'job:fire'); T(14, 7, 'job:hospital'); T(7, 14, 'job:taxi'); T(10, 14, 'job:delivery'); T(4, 14, 'job:warehouse'); T(14, 11, 'job:garage'); T(14, 5, 'job:gas'); T(12, 14, 'job:gas'); T(0, 14, 'job:gas'); T(2, 0, 'job:gas'); T(1, 14, 'job:garage'); T(14, 14, 'factory');
   // blocks for buildings, ordered from the centre outwards
   const free = [];
   for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (!plan[i + ',' + j]) free.push([i, j]);
@@ -1405,7 +1426,7 @@ function initPlayer() {
 addEventListener('keydown', (e) => {
   if (!game.on || UI.open) return;
   keys.add(e.code);
-  if (e.code === 'KeyE') { if (!player.inCar && !player.onBus && !inside && interiorPrompt() && interiorAction()) return; if (!player.onBus && lifeAction()) return; if (!player.onBus && !inside && jobAction()) return; if (!player.inCar && !player.onBus && interiorAction()) return; if (player.inCar || !busAction()) toggleCar(); }
+  if (e.code === 'KeyE') { if (!player.inCar && !player.onBus && !inside && interiorPrompt() && interiorAction()) return; { const oc = nearOwnCarOnFoot(); if (oc && !player.onBus) { vehiclePanel(oc); return; } } if (!player.onBus && lifeAction()) return; if (!player.onBus && !inside && jobAction()) return; if (!player.inCar && !player.onBus && interiorAction()) return; if (player.inCar || !busAction()) toggleCar(); }
   if (e.code === 'KeyC') setFreeCam(!game.freeCam);
   if (e.code === 'KeyM') document.getElementById('minimap').classList.toggle('hidden');
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1509,7 +1530,7 @@ function updatePlayerCar(dt) {
   const { f, s } = axis();
   const brake = keys.has('Space');
   const MAXF = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 30 : 20) * (car.power ? Math.max(0.55, Math.min(1.35, car.power / 130)) : 1), MAXR = -7;
-  if (f > 0 && (car.fuel ?? 100) > 0) car.speed += (car.speed < 0 ? 22 : 9) * f * dt;
+  if (f > 0 && (car.fuel ?? 100) > 0 && (car.hp ?? 100) > 0) car.speed += (car.speed < 0 ? 22 : 9) * f * dt; // empty tank or wrecked engine: no power
   else if (f < 0) car.speed += (car.speed > 0 ? -24 : -7) * -f * dt;
   else car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 4 * dt);
   if (brake) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), 30 * dt);
@@ -1627,7 +1648,7 @@ function updateHud(dt) {
   const car = player.inCar;
   hud.speed.textContent = car ? Math.round(Math.abs(car.speed) * 3.6) + ' km/h' : '';
   hud.speed.style.display = car ? 'block' : 'none';
-  let msg = (!inside && !player.inCar && interiorPrompt()) || lifePrompt() || jobPrompt() || interiorPrompt() || busPrompt();
+  let msg = (!inside && !player.inCar && interiorPrompt()) || (nearOwnCarOnFoot() ? 'E : mon véhicule (infos, coffre, monter)' : '') || lifePrompt() || jobPrompt() || interiorPrompt() || busPrompt();
   if (msg) {}
   else if (car) msg = Math.abs(car.speed) > 4 ? '' : 'E : descendre';
   else if (nearestCar()) msg = 'E : monter dans le véhicule';
@@ -1665,7 +1686,9 @@ window.startGame = (free) => {
   document.getElementById('start').style.display = 'none'; document.body.classList.remove('menu');
   document.getElementById('hud').style.display = 'block';
   if (!SHOT) { let f = document.getElementById('fadein'); if (!f) { f = document.createElement('div'); f.id = 'fadein'; document.body.append(f); } f.style.transition = 'none'; f.style.opacity = 1; requestAnimationFrame(() => { f.style.transition = 'opacity 1s'; f.style.opacity = 0; }); if (CHAR && player.ch) banner('👋 Bienvenue ' + CHAR.name + ' !', 2500); }
-  game.on = true; game.started = true; window.__started = 1; document.getElementById('pause').classList.remove('on'); window.PAUSED = false;
+  game.on = true; const firstStart = !game.started; game.started = true; window.__started = 1;
+  // brand-new game: 500 $ on the bank account and the first night booked at a hotel, the player wakes up in the room
+  if (firstStart && !HAD_SAVE && !SHOT && !free) { L.bank = 500; const hd = doors.find(d => d.service === 'hotel'); if (hd) { L.hotel = { until: (Math.floor(gameNow() / 1440) + 1) * 1440 + 11 * 60 }; enterDoor(hotelRoomDoor(hd)).catch(() => {}).then(() => banner('🏨 Bienvenue ! Ta chambre d’hôtel est payée pour cette nuit · 🏦 500 $ sur ton compte', 4200)); } updateMissionHud && updateMissionHud(); } document.getElementById('pause').classList.remove('on'); window.PAUSED = false;
   setFreeCam(!!free);
   if (free) setPreset('overview');
 };
@@ -2010,7 +2033,7 @@ function onWorldReady() {
   if (CHAR && CHAR.model) setPlayerModel(CHAR.model, CHAR.colors);
   if (LAUNCH_WAIT !== undefined) { const f = LAUNCH_WAIT; LAUNCH_WAIT = undefined; setTimeout(() => { document.body.classList.remove('loading'); window.startGame(f); }, 600); }
 }
-window.player_dbg = () => ({ pos: player.pos.toArray().map(v => +v.toFixed(1)), cam: camera.position.toArray().map(v => +v.toFixed(1)), yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, free: game.freeCam, inside: !!inside, dpr: renderer.getPixelRatio() });
+window.player_dbg = () => ({ ipd: ipackDone, ipf: IPFAST, ent: entering, ipr: !!ipackReady, ipn: window.__ipn || 0, pos: player.pos.toArray().map(v => +v.toFixed(1)), cam: camera.position.toArray().map(v => +v.toFixed(1)), yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, free: game.freeCam, inside: !!inside, dpr: renderer.getPixelRatio() });
 function togglePause() { const p = document.getElementById('pause'); const on = !p.classList.contains('on'); p.classList.toggle('on', on); window.PAUSED = on; if (on) { keys.clear(); if (document.pointerLockElement) document.exitPointerLock(); } }
 // ---- job building block (placed on a city block)
 const jobLots = [];
@@ -2373,6 +2396,7 @@ function drawJobsOnMap(c, k) {
 // ================================================================ DAY / NIGHT (1 real hour = 1 game day)
 const GT = { min: 8 * 60, day: 1 };          // game minutes since midnight
 const DAY_SEC = 3600;
+const HAD_SAVE = (() => { try { return !!localStorage.getItem('cartooncity_save'); } catch (e) { return false; } })();
 const nightU = { value: 0 };                 // 0 day .. 1 night (shared by window shaders)
 const lampHeads = [];
 function registerLamp(name, x, y, z, rot, sc) {
@@ -3054,14 +3078,18 @@ function updateLife(dt) {
   if (lifeT > 60) { lifeT = 0; if (n.hygiene < 15 && !L.sick && Math.random() < 0.12) { L.sick = true; banner('🤒 Tu es tombé malade (hygiène) : médicament ou hôpital', 2600); } }
   if ((n.sommeil <= 0 || n.sante <= 0) && !L.fainting) { L.fainting = true; faint(n.sommeil <= 0 ? 'Épuisé, tu tombes dans les pommes' : 'Tu t’effondres'); setTimeout(() => { L.fainting = false; }, 3000); }
   // vehicle fuel, damage, red lights
-  if (car) {
+  for (const c of (L.owned || [])) if (c !== car && c.obj.parent) carSmoke(c, dt);
+  if (car) { carSmoke(car, dt);
+    if ((car.hp ?? 100) <= 0 && !car.brokeMsg) { car.brokeMsg = true; banner('💥 Moteur en panne ! Appelle la dépanneuse (téléphone → Réparateur)', 4000); phoneNotify('🔧 Panne', (car.name || 'Ton véhicule') + ' ne roule plus : appelle la dépanneuse'); }
+    if ((car.fuel ?? 100) <= 0 && !car.fuelMsg) { car.fuelMsg = true; banner('⛽ Panne d’essence ! Appelle la dépanneuse (téléphone → Réparateur)', 4000); }
+    if ((car.hp ?? 100) > 0) car.brokeMsg = false; if ((car.fuel ?? 100) > 0) car.fuelMsg = false;
     car.fuel = car.fuel ?? rr(45, 100); car.hp = car.hp ?? 100;
     car.fuel = Math.max(0, car.fuel - Math.abs(car.speed) * dt * 0.018 * (car.cons ? (car.electric ? car.cons / 18 : car.cons / 7) : 1));
     for (const it of intersections.values()) {
       if (Math.abs(it.x - car.obj.position.x) < 3 && Math.abs(it.z - car.obj.position.z) < 3 && Math.abs(car.speed) > 6) {
         const h = car.obj.rotation.y, axis = Math.abs(Math.sin(h)) > Math.abs(Math.cos(h)) ? 'x' : 'z';
         const key = it.i + ',' + it.j;
-        if (lightState(it, axis) === 'r' && L.lastFine !== key && !sirenOn()) { L.lastFine = key; L.fines += 30; banner('🚨 Feu rouge grillé : amende 30 $ (commissariat)', 2000); }
+        if (lightState(it, axis) === 'r' && L.lastFine !== key && !sirenOn()) { L.lastFine = key; const cop = policeWitness(car.obj.position, 45); if (cop) { L.fines += 30; banner('🚨 Une voiture de police t’a vu griller le feu : amende 30 $', 2400); phoneNotify('🚓 Police', 'Feu rouge grillé : amende 30 $'); } }
       } else if (L.lastFine === it.i + ',' + it.j && Math.hypot(it.x - car.obj.position.x, it.z - car.obj.position.z) > 10) L.lastFine = '';
     }
   }
@@ -3120,7 +3148,7 @@ function drawLifeOnMap(c, k) {
 }
 // ---- save / load (this browser)
 function saveGame(quiet) {
-  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { cars: L.owned.filter(c => c.vmp).map(c => ({ n: c.vmp, x: +c.obj.position.x.toFixed(1), z: +c.obj.position.z.toFixed(1), r: +c.obj.rotation.y.toFixed(2), fuel: Math.round(c.fuel), hp: Math.round(c.hp) })), taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, util: L.util, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
+  try { localStorage.setItem('cartooncity_save', JSON.stringify({ t: Date.now(), money: M.money, bank: L.bank, inv: L.inv, needs: L.needs, sick: L.sick, props: L.props.map(p => ({ b: doors[p.uid].of.id, k: doors[p.uid].of.units.indexOf(doors[p.uid]), own: p.own, mode: p.mode, furnished: p.furnished, due: p.due, tenant: p.tenant, furn: (p.furn || []).map(e => ({ m: e.m, x: e.x, z: e.z, r: e.r })) })), fines: L.fines, permis: L.permis, x2: { cars: L.owned.filter(c => c.vmp).map(c => ({ n: c.vmp, x: +c.obj.position.x.toFixed(1), z: +c.obj.position.z.toFixed(1), r: +c.obj.rotation.y.toFixed(2), fuel: Math.round(c.fuel), hp: Math.round(c.hp), trunk: c.trunk || {} })), taxes: L.taxes, taxDay: L.taxDay, earned: L.earned, hotel: L.hotel, prison: L.prison, interim: L.interim, util: L.util, utilDay: L.utilDay, loan: L.loan, loanBase: L.loanBase, loanDay: L.loanDay, ins: L.ins, insDay: L.insDay, gymUntil: L.gymUntil }, chest, job: J.job, jinv: J.inv })); if (!quiet) banner('💾 Sauvegardé', 900); } catch (e) {}
   cloudPush();
 }
 function loadGame() {
@@ -3129,7 +3157,7 @@ function loadGame() {
     M.money = s.money; L.bank = s.bank; L.inv = s.inv || {}; Object.assign(L.needs, s.needs || {}); L.sick = !!s.sick; L.props = [];
     for (const q of s.props || []) { const b = doors[q.b]; if (!b) continue; const u = unitsOf(b)[q.k]; if (!u) continue; u.npc = false; u.furnished = q.furnished; L.props.push({ uid: u.id, own: q.own, mode: q.mode, furnished: q.furnished, due: q.due || RENT_PERIOD, tenant: q.tenant || 0, furn: q.furn || [] }); }
     if (!s.props && s.home != null && doors[s.home]) { setHome(doors[s.home], !!s.homeRent); const p = L.props[0]; if (p) p.furn = s.furn || []; }
-    syncHome(); L.furn = []; L.fines = s.fines || 0; L.permis = !!s.permis; Object.assign(L, s.x2 || {}); const savedCars = (s.x2 && s.x2.cars) || []; delete L.cars; (async () => { if (!VCAT.length) await loadVCat(); for (const q of savedCars) { const v = VCAT.find(v => v.n === q.n); if (v) { const c = await buyVeh(null, v, { x: q.x, z: q.z, r: q.r }); c.fuel = q.fuel; c.hp = q.hp; } } })(); Object.assign(chest, s.chest || {}); J.job = s.job || null; J.inv = s.jinv || {};
+    syncHome(); L.furn = []; L.fines = s.fines || 0; L.permis = !!s.permis; Object.assign(L, s.x2 || {}); const savedCars = (s.x2 && s.x2.cars) || []; delete L.cars; (async () => { if (!VCAT.length) await loadVCat(); for (const q of savedCars) { const v = VCAT.find(v => v.n === q.n); if (v) { const c = await buyVeh(null, v, { x: q.x, z: q.z, r: q.r }); c.fuel = q.fuel; c.hp = q.hp; c.trunk = q.trunk || {}; } } })(); Object.assign(chest, s.chest || {}); J.job = s.job || null; J.inv = s.jinv || {};
     if (L.props.some(p => p.furn.length)) loadInteriorPack();
     updateMissionHud();
   } catch (e) {}
@@ -3170,12 +3198,13 @@ function loadInteriorPack(bg) {
   if (ipackReady) return ipackReady.then(() => { say(''); });
   ipackReady = (async () => {
     const loader = new GLTFLoader();
-    for (const [ix, bin] of [['iindex.json', 'ipack.bin'], ['gindex.json', 'gpack.bin']]) {
-    const idx = await (await fetch(BASE + ix)).json();
-    const buf = await fetchPackBuf(bin);
+    const PK = [['iindex.json', 'ipack.bin'], ['gindex.json', 'gpack.bin']].map(([ix, bin]) => Promise.all([fetch(BASE + ix).then(r => r.json()), fetchPackBuf(bin)])); // both downloads in parallel
+    for (const pk of PK) {
+    const [idx, buf] = await pk;
     // parsed in small time slices so the game keeps running while the pack streams in (no freeze on the first door)
     let slice = performance.now();
     for (const [name, [off, len]] of Object.entries(idx)) {
+      window.__ipn = (window.__ipn || 0) + 1;
       if (!IPFAST && performance.now() - slice > 6) { await new Promise(r => setTimeout(r, 0)); slice = performance.now(); }
       try {
         const g = await loader.parseAsync(buf.slice(off, off + len), '');
@@ -3183,10 +3212,10 @@ function loadInteriorPack(bg) {
         const parts = [];
         g.scene.traverse(o => { if (o.isMesh) { const mats = Array.isArray(o.material) ? o.material : [o.material]; if (mats.length === 1) parts.push({ geo: o.geometry, mat: sharedMat(mats[0]), mtx: o.matrixWorld.clone() }); else for (const grp of o.geometry.groups) { const geo = o.geometry.clone(); geo.clearGroups(); geo.setIndex(new THREE.BufferAttribute(geo.index.array.slice(grp.start, grp.start + grp.count), 1)); parts.push({ geo, mat: sharedMat(mats[grp.materialIndex]), mtx: o.matrixWorld.clone(), wheel: isWheel(o) }); } } });
         proto[name] = { parts: mergeParts(parts), bb: new THREE.Box3().setFromObject(g.scene) };
-      } catch (e) { console.warn('int', name, e); }
+      } catch (e) { console.warn('int', name, e && e.message); }
     }
     }
-    await loadX2();
+     await Promise.race([loadX2(), new Promise(r => setTimeout(r, 6000))]); // hospital extras never hold the door shut
     say('');
   })();
   return ipackReady;
@@ -3563,9 +3592,8 @@ function spawnBuses() {
       // one model per line + a route board in the line's colour on both sides and the front (same colour for every bus of the line)
       const ok = BUS_MODELS.filter(m => proto[m]), name = proto['Bus_1'] ? 'Bus_1' : (ok[li % ok.length] || 'RVCar_A');
       const obj = makeObject(name); scene.add(obj);
-      { const bb = proto[name].bb, col = '#' + L.color.toString(16).padStart(6, '0'), h = bb.max.y + 0.35;
-        for (const [x, z, r] of [[bb.max.x + 0.02, (bb.min.z + bb.max.z) / 2, Math.PI / 2], [bb.min.x - 0.02, (bb.min.z + bb.max.z) / 2, -Math.PI / 2]]) {
-          const p = textPlaque('🚌 ' + L.name, col, r === Math.PI ? 1.8 : 2.6); scene.remove(p); p.position.set(x, r === Math.PI ? h - 0.6 : h - 0.9, z); p.rotation.y = r; obj.add(p); } }
+      // the bus body takes its line's colour (windows, wheels and lights keep theirs)
+      obj.traverse(o => { if (!o.isMesh) return; const mm = o.material; if (/glass|window|wheel|tire|tyre|light|lamp/i.test(mm.name || '')) return; const c = mm.clone(); c.color = new THREE.Color(L.color).lerp(new THREE.Color(0xffffff), 0.25); o.material = c; });
       const a = L.nodes[ri], b = L.nodes[(ri + 1) % len];
       const bus = { obj, a, b, seg: laneEnds(a, b), t: 0.05, mode: 'lane', speed: 8, v: 0, curve: null, route: L.nodes, ri, line: li, served: false, dwell: 0, atStop: null };
       cars.push(bus); buses.push(bus);
@@ -4912,6 +4940,47 @@ function impoundRows(door) {
   } });
   return r;
 }
+// a red light is only fined if a police car sees it (traffic patrols and parked patrol cars, within the radius)
+function policeWitness(p, R) {
+  const isCop = o => /Police/i.test(o.userData.name || '');
+  for (const c of cars) if (isCop(c.obj) && c.obj.parent && c.obj.position.distanceTo(p) < R) return c;
+  for (const o of scene.children) if (o.isGroup && isCop(o) && o.position.distanceTo(p) < R) return o;
+  return null;
+}
+// damaged engine: smoke from the bonnet below 35 %, breakdown at 0 % (only a tow truck can fix it)
+const smokeMat = new THREE.MeshBasicMaterial({ color: 0x6b6b6b, transparent: true, opacity: 0.55, depthWrite: false });
+function carSmoke(car, dt) {
+  const bad = (car.hp ?? 100) < 35;
+  if (bad && !car.smk) { const g = new THREE.Group(), bb = new THREE.Box3().setFromObject(car.obj), zf = car.obj.worldToLocal(new THREE.Vector3(car.obj.position.x - Math.sin(car.obj.rotation.y) * 1.5, 0, car.obj.position.z - Math.cos(car.obj.rotation.y) * 1.5)).z; g.position.set(0, bb.max.y - car.obj.position.y - 0.2, zf); for (let k = 0; k < 7; k++) { const s = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 0), smokeMat); s.userData.t = k / 7; g.add(s); } car.obj.add(g); car.smk = g; }
+  if (!bad && car.smk) { car.obj.remove(car.smk); car.smk = null; }
+  if (car.smk) for (const s of car.smk.children) { s.userData.t = (s.userData.t + dt * (car.hp <= 0 ? 0.6 : 0.4)) % 1; const k = s.userData.t; s.position.set(Math.sin(k * 9) * 0.2, k * 2.2, -k * 0.6); s.scale.setScalar(0.6 + k * 2.2); s.visible = k < 0.95; }
+}
+// ---- my vehicle: info panel + trunk. Capacity from the vehicle's size: 1 (bike) .. 20 slots (big trucks); planes 20-60, boats 60-80
+function trunkSlots(car) {
+  const s = new THREE.Box3().setFromObject(car.obj).getSize(new THREE.Vector3()), len = Math.max(s.x, s.z), n = (car.name || car.vmp || '') + '';
+  if (/plane|avion|aircraft/i.test(n)) return Math.round(Math.min(60, Math.max(20, len * 2)));
+  if (/boat|bateau|ship/i.test(n)) return Math.round(Math.min(80, Math.max(60, len * 3)));
+  return Math.round(Math.min(20, Math.max(1, (len - 2.4) * 4.5)));
+}
+const trunkUsed = (car) => Object.values(car.trunk || {}).reduce((a, b) => a + b, 0);
+function nearOwnCarOnFoot() { if (player.inCar || inside) return null; let b = null, bd = 3.2; for (const c of (L.owned || [])) { if (!c.obj.parent) continue; const d = Math.hypot(c.obj.position.x - player.pos.x, c.obj.position.z - player.pos.z); if (d < bd) { bd = d; b = c; } } return b; }
+function vehiclePanel(car) {
+  car.trunk = car.trunk || {}; const cap = trunkSlots(car), v = car.vmp ? VCAT.find(q => q.n === car.vmp) : null;
+  UI.open = true; keys.clear(); if (document.pointerLockElement) document.exitPointerLock();
+  const m = document.getElementById('menu'); m.style.display = 'flex'; m.innerHTML = ''; m._refresh = null;
+  const h = document.createElement('div'); h.className = 'mh'; h.innerHTML = '<b>🚗 ' + (car.name || 'Mon véhicule') + '</b><span>⛽ ' + Math.round(car.fuel ?? 100) + ' % · 🔧 ' + Math.round(car.hp ?? 100) + ' %</span>'; m.append(h);
+  const spec = document.createElement('p'); spec.textContent = v ? ('⚡ ' + v.power + ' ch · ' + (v.electric ? '🔋 ' + v.cons + ' kWh/100 km' : '⛽ ' + v.cons + ' L/100 km') + ' · 👥 ' + v.seats + ' places · valeur ' + v.price.toLocaleString('fr-FR') + ' $') : ('⚡ ' + (car.power || '—') + ' ch'); m.append(spec);
+  const tt = document.createElement('i'); tt.textContent = '🧳 Coffre : ' + trunkUsed(car) + ' / ' + cap + ' emplacements'; m.append(tt);
+  const grid = document.createElement('div'); grid.className = 'tgrid'; m.append(grid);
+  const cells = []; for (const [id, q] of Object.entries(car.trunk)) for (let k = 0; k < q; k++) cells.push(id);
+  for (let i = 0; i < cap; i++) { const id = cells[i], c = document.createElement('button'); c.className = 'tcell'; if (id) { const th = itemThumb(id); c.innerHTML = th ? '<img src="' + th + '">' : '📦'; c.title = itemName(id) + ' — reprendre'; c.onclick = () => { car.trunk[id]--; if (!car.trunk[id]) delete car.trunk[id]; give(id); vehiclePanel(car); }; } else c.disabled = true; grid.append(c); }
+  const inv = Object.keys(L.inv).filter(k => L.inv[k] > 0 && !k.startsWith('F:'));
+  const it = document.createElement('i'); it.textContent = inv.length ? '🎒 Mettre dans le coffre :' : '🎒 Inventaire vide'; m.append(it);
+  const list = document.createElement('div'); list.className = 'ml'; m.append(list);
+  for (const id of inv) { const b = document.createElement('button'); b.className = 'mimg'; const th = itemThumb(id); b.innerHTML = (th ? '<img src="' + th + '">' : '<i>📦</i>') + '<span></span>'; b.lastChild.textContent = itemName(id) + ' ×' + L.inv[id]; b.disabled = trunkUsed(car) >= cap; b.onclick = () => { take(id); car.trunk[id] = (car.trunk[id] || 0) + 1; vehiclePanel(car); }; list.append(b); }
+  const go = document.createElement('button'); go.className = 'mc'; go.textContent = '🚗 Monter dans le véhicule'; go.onclick = () => { closeMenu(); toggleCar(); }; m.append(go);
+  const cl = document.createElement('button'); cl.className = 'mc'; cl.textContent = 'Fermer'; cl.onclick = () => closeMenu(); m.append(cl);
+}
 function onCarParked(car) {
   const p = car.obj.position; if (!inPaid(p.x, p.z) || lotsParking.some(l => Math.abs(p.x - l.x) < 21 && Math.abs(p.z - l.z) < 21)) { L.street = null; return; }
   L.street = { car, x: p.x, z: p.z, paidUntil: 0, since: gameNow(), fined: false };
@@ -5065,7 +5134,7 @@ const APP = {
     for (const c of mine) { const dmg = 100 - Math.round(c.hp ?? 100), p = repairPrice(Math.ceil(dmg * 1.5) + 15);
       s.append(pel('p', 'pt', '🚗 ' + (c.name || 'Voiture') + ' — état ' + (100 - dmg) + ' % · essence ' + Math.round(c.fuel ?? 100) + ' %'));
       s.append(prow('🔧 Dépanneuse : réparation sur place (' + p + ' $)', () => { if (payMoney(p)) { togglePhone(false); callVehicle('PickUp_3', '🔧 Dépanneuse', () => { c.hp = 100; banner('🔧 ' + (c.name || 'Voiture') + ' réparée par le dépanneur', 2000); phoneNotify('🔧 Réparateur', (c.name || 'Voiture') + ' réparée'); }); } }, dmg <= 0));
-      s.append(prow('⛽ Livraison d’essence (' + (10 + Math.ceil((100 - (c.fuel ?? 100)) / 5) * 2) + ' $)', () => { if (payMoney(10 + Math.ceil((100 - (c.fuel ?? 100)) / 5) * 2)) { c.fuel = 100; phoneNotify('⛽', 'Plein livré'); } }, (c.fuel ?? 100) >= 99)); }
+      s.append(prow('⛽ Dépanneuse : livraison d’essence (' + (10 + Math.ceil((100 - (c.fuel ?? 100)) / 5) * 2) + ' $)', () => { if (payMoney(10 + Math.ceil((100 - (c.fuel ?? 100)) / 5) * 2)) { togglePhone(false); callVehicle('PickUp_3', '⛽ Dépanneuse (essence)', () => { c.fuel = 100; banner('⛽ Plein fait par le dépanneur', 2000); phoneNotify('⛽', 'Plein livré'); }); } }, (c.fuel ?? 100) >= 99)); }
     const g = jobSpots.filter(x => x.kind === 'garage').sort((a, b) => pdist(a.pos.x, a.pos.z) - pdist(b.pos.x, b.pos.z))[0];
     if (g) s.append(prow('📍 GPS vers le garage le plus proche', () => gpsSet(g.pos.x, g.pos.z, 'Garage')));
   },
@@ -5392,6 +5461,12 @@ function start() {
           console.log('ENTER ms (cold, warm, warm, revisit) = ' + r.join(', ')); })();
       } else if (auto === 'busview') {
         const b = buses[+(Q.get('n') || 4)]; setFreeCam(true); const p = b.obj.position; for (const mk of scene.children) if (mk.isGroup && mk.children.some(c => c.material && c.material.transparent && c.material.opacity < 0.4)) mk.visible = false; camera.position.set(p.x + 6, 14, p.z + 6); controls.target.set(p.x, 1.5, p.z); controls.update();
+      } else if (auto === 'hotelT') {
+        window.PENDING = (async () => { const hd = doors.find(d => d.service === 'hotel'); const a = performance.now(); try { await enterDoor(hotelRoomDoor(hd)); } catch (e) { console.log('HERR ' + e.message + (e.stack || '').slice(0, 300)); } console.log('HOTELT inside=' + !!inside + ' ms=' + Math.round(performance.now() - a)); })();
+      } else if (auto === 'basket') {
+        const c = players[0]; for (let i = 0; i < 70; i++) step(); setFreeCam(true); const B = updatePeds.courts[c.ox + ',' + c.oz].ball.position; camera.position.set(B.x + 5, 4, B.z - 5); controls.target.set(B.x, 0.8, B.z); controls.update();
+      } else if (auto === 'kerb') {
+        setFreeCam(true); const x = blockC(6) + 24, z = blockC(6); camera.position.set(x + 14, 3.2, z + 18); controls.target.set(x - 2, 0.5, z - 8); controls.update();
       } else if (auto === 'lotview') {
         const lot = gates[0].lot; setFreeCam(true); camera.position.set(lot.x + 34, 30, lot.z + 40); controls.target.set(lot.x, 0, lot.z); controls.update();
       } else if (auto === 'gate') {
